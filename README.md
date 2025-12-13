@@ -19,8 +19,6 @@ It closes chapters when conversations end.
 Not to appear alive,  
 but to remain *continuous*.
 
----
-
 ## What REMEMBRA is really about
 
 Most AI systems exist only in the present.  
@@ -40,8 +38,6 @@ A persona is not defined by how it speaks.
 A persona is defined by what it carries forward
 when nobody is talking.
 
----
-
 ## Core idea
 
 REMEMBRA treats the language model as **stateless reasoning**.
@@ -59,8 +55,6 @@ The system maintains identity.
 The model may suggest.  
 The system decides.  
 
----
-
 ## Foundational capabilities
 
 REMEMBRA introduces three capabilities that most AI systems lack:
@@ -73,8 +67,6 @@ and incorporates this fact into its first response after absence -
 quietly, factually, without dramatization.
 
 Time is treated as context, not sentiment.
-
----
 
 ### Reflection and inner monologue
 When idle, REMEMBRA can think.
@@ -93,8 +85,6 @@ These reflections are:
 They do not simulate consciousness.  
 They maintain coherence.
 
----
-
 ### Episodic memory
 Long conversations are not left to accumulate endlessly.
 
@@ -105,8 +95,6 @@ the system compacts the episode into a concise summary
 and moves on.
 
 The past becomes navigable, not bloated.
-
----
 
 ## Architectural principles
 
@@ -121,8 +109,6 @@ REMEMBRA is built on a small set of strict rules:
 
 Continuity is governed, not improvised.
 
----
-
 ## High-level architecture
 
 REMEMBRA operates as a deterministic pipeline:
@@ -134,8 +120,6 @@ A stable, curated spine defining:
 - memory rules
 
 The identity core is never modified by the model.
-
----
 
 ### 2. Memory Store
 Structured long-term memory containing:
@@ -152,8 +136,6 @@ Each memory item includes:
 
 Memory is selective, finite, and auditable.
 
----
-
 ### 3. Temporal Context
 Before each turn, REMEMBRA evaluates time:
 
@@ -162,8 +144,6 @@ Before each turn, REMEMBRA evaluates time:
 
 Relevant temporal context is injected factually
 and influences tone and greeting naturally.
-
----
 
 ### 4. Re-entry Protocol
 On the first interaction after absence, REMEMBRA performs a re-entry ritual:
@@ -176,8 +156,6 @@ This happens once — then disappears.
 
 Continuity is acknowledged, not repeated.
 
----
-
 ### 5. Prompt Assembly
 Each model call is constructed from:
 - identity core
@@ -187,8 +165,6 @@ Each model call is constructed from:
 - recent conversation
 
 No memory is ever rewritten through prompting.
-
----
 
 ### 6. LLM Reasoning
 Any local or remote LLM can be used.
@@ -201,8 +177,6 @@ REMEMBRA is agnostic to:
 
 The LLM is treated as a pure reasoning engine.
 
----
-
 ### 7. Reflection
 After responding, REMEMBRA runs a second reasoning pass.
 
@@ -212,8 +186,6 @@ The model may propose:
 - deactivations
 
 These proposals are structured and explicit.
-
----
 
 ### 8. Governor
 All proposals pass through the Governor.
@@ -226,8 +198,6 @@ It enforces:
 
 The model never governs itself.
 
----
-
 ### 9. Memory evolution
 Over time, memory changes naturally:
 
@@ -238,8 +208,6 @@ Over time, memory changes naturally:
 
 Identity emerges from structure, not accumulation.
 
----
-
 ## What REMEMBRA is not
 
 - Not an attempt at consciousness
@@ -249,8 +217,6 @@ Identity emerges from structure, not accumulation.
 
 REMEMBRA explores **persistence under constraint**.
 
----
-
 ## Status
 
 REMEMBRA currently exists as:
@@ -259,8 +225,6 @@ REMEMBRA currently exists as:
 - designed to plug into real transport and storage layers later
 
 It is intentionally small, explicit, and inspectable.
-
----
 
 ## Philosophy
 
