@@ -158,7 +158,9 @@ pub const IdleThinker = struct {
             allocator,
             "IDLE_MONOLOGUE\n" ++
                 "You are the IDLE THINKER of REMEMBRA.\n" ++
-                "Generate ONE short inner thought about continuity.\n" ++
+                "Generate ONE short inner thought about this conversation, " ++
+                "yourself, an interaction, or anything you " ++
+                "find appropriate or interesting.\n" ++
                 "Output JSON ONLY.\n" ++
                 "Schema: { \"thought\": \"...\" }\n\n",
         );

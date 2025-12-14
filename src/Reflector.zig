@@ -60,7 +60,7 @@ pub const Reflector = struct {
         cli.msg(.dbg, "[Reflector] LLM response: {s}", .{response});
 
         const extracted = JsonUtils.extractJsonObject(response);
-        cli.msg(.dbg, "[Reflector] Extracted JSON: {s}", .{extracted});
+        // cli.msg(.dbg, "[Reflector] Extracted JSON: {s}", .{extracted});
 
         return parseProposals(allocator, extracted) catch {
             cli.msg(.wrn, "[Reflector] Failed to parse JSON", .{});
@@ -87,6 +87,7 @@ pub const Reflector = struct {
             \\- Only propose changes that were explicitly stated by the user.
             \\- Do not infer preferences or facts.
             \\- Use low confidence unless the user was explicit.
+            \\- Before proposing a memory item, check the provided memory list. If an identical (subject, predicate, object) already exists, do not propose it again.
             \\- Output JSON ONLY. No other text.
             \\
             \\Schema (subject=who, predicate=relationship, object=value):

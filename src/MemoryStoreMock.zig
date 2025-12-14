@@ -108,6 +108,36 @@ pub const MemoryStoreMock = struct {
         return out;
     }
 
+    pub fn loadAllMessages(
+        self: *MemoryStoreMock,
+        allocator: std.mem.Allocator,
+    ) ![]Types.Message {
+        const out = try allocator.alloc(Types.Message, self.messages.items.len);
+        for (out, 0..) |*dst, i| dst.* = self.messages.items[i];
+        return out;
+    }
+
+    pub fn loadMessagesSince(
+        self: *MemoryStoreMock,
+        allocator: std.mem.Allocator,
+        since_ms: i64,
+    ) ![]Types.Message {
+        var count: usize = 0;
+        for (self.messages.items) |m| {
+            if (m.created_at_ms >= since_ms) count += 1;
+        }
+
+        const out = try allocator.alloc(Types.Message, count);
+        var j: usize = 0;
+        for (self.messages.items) |m| {
+            if (m.created_at_ms >= since_ms) {
+                out[j] = m;
+                j += 1;
+            }
+        }
+        return out;
+    }
+
     pub fn addIdentityEntry(
         self: *MemoryStoreMock,
         allocator: std.mem.Allocator,
@@ -188,6 +218,14 @@ pub const MemoryStoreMock = struct {
         );
         for (out, 0..) |*dst, i| dst.* = self.memory.items[i];
         return out;
+    }
+
+    pub fn loadMemoryCandidates(
+        self: *MemoryStoreMock,
+        allocator: std.mem.Allocator,
+        max_count: usize,
+    ) ![]Types.MemoryItem {
+        return self.loadMemoryItems(allocator, max_count);
     }
 
     pub fn hasActiveMemoryExact(

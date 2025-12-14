@@ -174,6 +174,71 @@ pub const MemoryStoreSqlite = struct {
         return try tmp.toOwnedSlice(allocator);
     }
 
+    pub fn loadAllMessages(
+        self: *MemoryStoreSqlite,
+        allocator: std.mem.Allocator,
+    ) ![]Types.Message {
+        const stmt = try self.db.prepare(
+            "SELECT role, content, created_at_ms FROM messages " ++
+                "ORDER BY id ASC;",
+        );
+        defer sqlite.finalize(stmt);
+
+        var out: std.ArrayList(Types.Message) = .empty;
+        errdefer {
+            for (out.items) |m| allocator.free(@constCast(m.content));
+            out.deinit(allocator);
+        }
+
+        while (sqlite.step(stmt) == c.SQLITE_ROW) {
+            const role_i = sqlite.columnInt(stmt, 0);
+            const txt = sqlite.columnText(stmt, 1);
+            const created = sqlite.columnInt64(stmt, 2);
+
+            try out.append(allocator, .{
+                .role = @enumFromInt(role_i),
+                .content = try allocator.dupe(u8, txt),
+                .created_at_ms = created,
+            });
+        }
+
+        return try out.toOwnedSlice(allocator);
+    }
+
+    pub fn loadMessagesSince(
+        self: *MemoryStoreSqlite,
+        allocator: std.mem.Allocator,
+        since_ms: i64,
+    ) ![]Types.Message {
+        const stmt = try self.db.prepare(
+            "SELECT role, content, created_at_ms FROM messages " ++
+                "WHERE created_at_ms >= ? ORDER BY id ASC;",
+        );
+        defer sqlite.finalize(stmt);
+
+        sqlite.bindInt64(stmt, 1, since_ms);
+
+        var out: std.ArrayList(Types.Message) = .empty;
+        errdefer {
+            for (out.items) |m| allocator.free(@constCast(m.content));
+            out.deinit(allocator);
+        }
+
+        while (sqlite.step(stmt) == c.SQLITE_ROW) {
+            const role_i = sqlite.columnInt(stmt, 0);
+            const txt = sqlite.columnText(stmt, 1);
+            const created = sqlite.columnInt64(stmt, 2);
+
+            try out.append(allocator, .{
+                .role = @enumFromInt(role_i),
+                .content = try allocator.dupe(u8, txt),
+                .created_at_ms = created,
+            });
+        }
+
+        return try out.toOwnedSlice(allocator);
+    }
+
     pub fn countMessagesSinceCutoff(self: *MemoryStoreSqlite) usize {
         const total = self.countMessages() catch 0;
         const cutoff = self.getEpisodeCutoffIndex();
@@ -415,6 +480,14 @@ pub const MemoryStoreSqlite = struct {
         }
 
         return try out.toOwnedSlice(allocator);
+    }
+
+    pub fn loadMemoryCandidates(
+        self: *MemoryStoreSqlite,
+        allocator: std.mem.Allocator,
+        max_count: usize,
+    ) ![]Types.MemoryItem {
+        return self.loadMemoryItems(allocator, max_count);
     }
 
     pub fn hasActiveMemoryExact(

@@ -14,6 +14,7 @@ const EpisodeCompactor = @import("EpisodeCompactor.zig").EpisodeCompactor;
 const InjectionGuard = @import("InjectionGuard.zig");
 const Intent = @import("Intent.zig");
 const IdleThinker = @import("IdleThinker.zig").IdleThinker;
+const Retrieval = @import("Retrieval.zig").Retrieval;
 
 const USE_SQLITE = true;
 const USE_OLLAMA = true;
@@ -41,6 +42,21 @@ fn readLine(file: std.fs.File, buf: []u8) !?[]u8 {
     return buf[0..i];
 }
 
+fn printHistory(cli: *Cli, msgs: []const Types.Message) void {
+    if (msgs.len == 0) {
+        cli.msg(.inf, "No messages.", .{});
+        return;
+    }
+    for (msgs) |m| {
+        const kind: Cli.MsgKind = switch (m.role) {
+            .user => .snd,
+            .assistant => .ok,
+            .system => .st2,
+        };
+        cli.msg(kind, "{s}", .{m.content});
+    }
+}
+
 pub fn main() !void {
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
     defer _ = gpa.deinit();
@@ -50,7 +66,7 @@ pub fn main() !void {
     defer cli.deinit(allocator);
     cli.app_prefix = "REMEMBRA";
     cli.show_timestamp = false;
-    cli.debug_level = 1;
+    // cli.debug_level = 1;
     try cli.enableLogmode("REMEMBRA.log");
 
     cli.msg(.inf, "Starting up ...", .{});
@@ -93,14 +109,15 @@ pub fn main() !void {
         cli.msg(
             .inf,
             "Commands: /db init/clear/stats, /mem add/ls/decay, " ++
-                "/episode compact, /time advance, /idle run/tick, /quit",
+                "/history [all|<hours>], /episode compact, " ++
+                "/time advance, /idle run/tick, /quit",
             .{},
         );
     } else {
         cli.msg(
             .inf,
-            "Commands: /mem add/ls/decay, /episode compact, " ++
-                "/time advance, /idle run/tick, /quit",
+            "Commands: /mem add/ls/decay, /history [all|<hours>], " ++
+                "/episode compact, /time advance, /idle run/tick, /quit",
             .{},
         );
     }
@@ -241,6 +258,48 @@ pub fn main() !void {
             continue;
         }
 
+        if (std.mem.eql(u8, line, "/history")) {
+            const msgs = try store.loadRecentMessages(allocator, 50);
+            defer {
+                if (USE_SQLITE) {
+                    for (msgs) |m| allocator.free(@constCast(m.content));
+                }
+                allocator.free(msgs);
+            }
+            printHistory(cli, msgs);
+            continue;
+        }
+
+        if (std.mem.eql(u8, line, "/history all")) {
+            const msgs = try store.loadAllMessages(allocator);
+            defer {
+                if (USE_SQLITE) {
+                    for (msgs) |m| allocator.free(@constCast(m.content));
+                }
+                allocator.free(msgs);
+            }
+            printHistory(cli, msgs);
+            continue;
+        }
+
+        if (std.mem.startsWith(u8, line, "/history ")) {
+            const rest = line["/history ".len..];
+            const hours = std.fmt.parseInt(i64, rest, 10) catch {
+                cli.msg(.wrn, "Usage: /history [all|<hours>]", .{});
+                continue;
+            };
+            const since_ms = store.nowMs() - (hours * 60 * 60 * 1000);
+            const msgs = try store.loadMessagesSince(allocator, since_ms);
+            defer {
+                if (USE_SQLITE) {
+                    for (msgs) |m| allocator.free(@constCast(m.content));
+                }
+                allocator.free(msgs);
+            }
+            printHistory(cli, msgs);
+            continue;
+        }
+
         if (std.mem.eql(u8, line, "/idle run")) {
             const now_ms = store.nowMs();
             try IdleThinker.maybeRun(
@@ -363,16 +422,31 @@ pub fn main() !void {
             now_ms,
         );
 
-        const memory = try store.loadMemoryItems(allocator, 20);
+        const candidates = try store.loadMemoryCandidates(allocator, 200);
         defer {
             if (USE_SQLITE) {
-                for (memory) |m| {
+                for (candidates) |m| {
                     allocator.free(@constCast(m.subject));
                     allocator.free(@constCast(m.predicate));
                     allocator.free(@constCast(m.object));
                 }
             }
-            allocator.free(memory);
+            allocator.free(candidates);
+        }
+
+        const selected_idxs = try Retrieval.select(
+            allocator,
+            candidates,
+            line,
+            now_ms,
+            .{},
+        );
+        defer allocator.free(selected_idxs);
+
+        const memory = try allocator.alloc(Types.MemoryItem, selected_idxs.len);
+        defer allocator.free(memory);
+        for (selected_idxs, 0..) |idx, j| {
+            memory[j] = candidates[idx];
         }
 
         const recent = try store.loadRecentMessages(allocator, 24);
@@ -429,7 +503,7 @@ pub fn main() !void {
 
         try store.insertMessage(allocator, .assistant, reply);
 
-        cli.msg(.rok, "{s}", .{reply});
+        cli.msg(.ok, "{s}", .{reply});
 
         const recent_for_reflection = try store.loadRecentMessages(allocator, 24);
         defer {
