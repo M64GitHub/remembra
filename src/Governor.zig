@@ -5,6 +5,13 @@ const MemoryPolicy = @import("MemoryPolicy.zig").MemoryPolicy;
 const Cli = @import("Cli.zig").Cli;
 
 pub const Governor = struct {
+    const ValidationError = error{
+        ActionMustBeAdd,
+        ConfidenceTooLow,
+        InvalidKind,
+        InvalidSubject,
+    };
+
     pub fn apply(
         allocator: std.mem.Allocator,
         store: anytype,
@@ -15,14 +22,15 @@ pub const Governor = struct {
         const now = std.time.milliTimestamp();
 
         for (proposals) |p| {
-            if (!isAllowed(p)) {
-                cli.msg(.wrn, "[Governor] rejected: {s}.{s}={s}", .{
+            validateProposal(p) catch |err| {
+                cli.msg(.wrn, "[Governor] rejected: {s}.{s}={s} ({s})", .{
                     p.subject,
                     p.predicate,
                     p.object,
+                    @errorName(err),
                 });
                 continue;
-            }
+            };
 
             const last_time = store.lastActiveMemoryTimeForKey(
                 p.kind,
@@ -67,22 +75,17 @@ pub const Governor = struct {
         }
     }
 
-    fn isAllowed(p: ReflectionProposal) bool {
-        if (p.action != .add) return false;
-        if (p.confidence < 0.6) return false;
+    fn validateProposal(p: ReflectionProposal) ValidationError!void {
+        if (p.action != .add) return error.ActionMustBeAdd;
+        if (p.confidence < 0.6) return error.ConfidenceTooLow;
 
         const valid_kind = (p.kind == .note) or
             (p.kind == .fact) or
             (p.kind == .preference);
-        if (!valid_kind) return false;
+        if (!valid_kind) return error.InvalidKind;
 
         const valid_subject = std.mem.eql(u8, p.subject, "user") or
             std.mem.eql(u8, p.subject, "self");
-        if (!valid_subject) return false;
-
-        if (std.mem.eql(u8, p.predicate, "likes")) return false;
-        if (std.mem.eql(u8, p.predicate, "is")) return false;
-
-        return true;
+        if (!valid_subject) return error.InvalidSubject;
     }
 };

@@ -10,7 +10,6 @@ pub fn classifyMemoryIntent(user_text: []const u8) MemoryIntent {
     const patterns = [_][]const u8{
         "remember",
         "Remember",
-        "please remember",
         "store this",
         "save this",
         "don't forget",

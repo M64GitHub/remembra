@@ -60,7 +60,7 @@ pub const Reflector = struct {
         cli.msg(.dbg, "[Reflector] LLM response: {s}", .{response});
 
         const extracted = JsonUtils.extractJsonObject(response);
-        // cli.msg(.dbg, "[Reflector] Extracted JSON: {s}", .{extracted});
+        cli.msg(.dbg, "[Reflector] Extracted JSON: {s}", .{extracted});
 
         return parseProposals(allocator, extracted) catch {
             cli.msg(.wrn, "[Reflector] Failed to parse JSON", .{});
@@ -83,22 +83,36 @@ pub const Reflector = struct {
             \\You are the REFLECTION module of REMEMBRA.
             \\You may PROPOSE memory changes, but you do NOT apply them.
             \\
-            \\Rules:
-            \\- Only propose changes that were explicitly stated by the user.
-            \\- Do not infer preferences or facts.
-            \\- Use low confidence unless the user was explicit.
-            \\- Before proposing a memory item, check the provided memory list. If an identical (subject, predicate, object) already exists, do not propose it again.
-            \\- Output JSON ONLY. No other text.
+            \\SUBJECT RULES (IMPORTANT):
+            \\- subject MUST be "user" (facts about the human) or "self" (about AI)
+            \\- NEVER use the user's name as subject - always use "user"
+            \\- These are canonical identifiers, not personal names
             \\
-            \\Schema (subject=who, predicate=relationship, object=value):
+            \\RULES:
+            \\- Only propose changes explicitly stated by the user
+            \\- Do not infer preferences or facts
+            \\- Use confidence >= 0.7 for explicit statements
+            \\- Check existing memory - don't propose duplicates
+            \\- Output JSON ONLY, no other text
+            \\
+            \\SCHEMA:
             \\{ "proposals": [
-            \\  { "action": "add|update|deactivate",
-            \\    "kind": "fact|preference|project|note",
+            \\  { "action": "add",
+            \\    "kind": "fact",
             \\    "subject": "user",
-            \\    "predicate": "favorite_color",
-            \\    "object": "blue",
+            \\    "predicate": "friend",
+            \\    "object": "Lala",
             \\    "confidence": 0.8 }
             \\] }
+            \\
+            \\action: add|update|deactivate
+            \\kind: fact|preference|project|note
+            \\subject: "user" or "self" ONLY
+            \\
+            \\EXAMPLES:
+            \\- "remember Lala is my friend" -> user.friend=Lala
+            \\- "I like coffee" -> user.likes=coffee
+            \\- "my name is Mario" -> user.name=Mario
             \\
             \\Empty if nothing to store: { "proposals": [] }
             \\

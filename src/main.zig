@@ -66,7 +66,7 @@ pub fn main() !void {
     defer cli.deinit(allocator);
     cli.app_prefix = "REMEMBRA";
     cli.show_timestamp = false;
-    // cli.debug_level = 1;
+    cli.debug_level = 1;
     try cli.enableLogmode("REMEMBRA.log");
 
     cli.msg(.inf, "Starting up ...", .{});
@@ -503,22 +503,44 @@ pub fn main() !void {
 
         try store.insertMessage(allocator, .assistant, reply);
 
-        cli.msg(.ok, "{s}", .{reply});
+        cli.msg(.rok, "{s}", .{reply});
 
-        const recent_for_reflection = try store.loadRecentMessages(allocator, 24);
+        const recent_for_reflection =
+            try store.loadRecentMessages(allocator, 24);
+
         defer {
             if (USE_SQLITE) {
-                for (recent_for_reflection) |m| allocator.free(@constCast(m.content));
+                for (recent_for_reflection) |m| {
+                    allocator.free(@constCast(m.content));
+                }
             }
             allocator.free(recent_for_reflection);
         }
+
+        // Reflector uses only last 6 messages (excluding new
+        // assistant reply), while main LLM uses all 24
+        const max_context_msgs: usize = 6;
+        const total_loaded = recent_for_reflection.len;
+
+        const start_idx = if (total_loaded > max_context_msgs + 1)
+            total_loaded - max_context_msgs - 1
+        else
+            0;
+
+        const end_idx = if (total_loaded > 0)
+            total_loaded - 1
+        else
+            0;
+
+        const reflection_context =
+            recent_for_reflection[start_idx..end_idx];
 
         const proposals = try Reflector.run(
             allocator,
             &provider,
             identity,
             memory,
-            recent_for_reflection,
+            reflection_context,
             reply,
             allow_memory_ops,
             cli,
@@ -533,8 +555,16 @@ pub fn main() !void {
         }
 
         if (proposals.len != 0) {
-            cli.msg(.hil, "[Governor evaluation]", .{});
-            try Governor.apply(allocator, &store, policy, proposals, cli);
+            if (allow_memory_ops) {
+                cli.msg(.hil, "[Governor evaluation]", .{});
+                try Governor.apply(allocator, &store, policy, proposals, cli);
+            } else {
+                cli.msg(
+                    .dbg,
+                    "[Governor] skipped {d} proposal(s): no explicit intent",
+                    .{proposals.len},
+                );
+            }
         }
     }
 }

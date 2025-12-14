@@ -63,9 +63,10 @@ pub const PromptBuilder = struct {
             \\
             \\HARD RULES:
             \\- Memory below is READ-ONLY context.
-            \\- Do not claim you updated memory.
-            \\- Do not rewrite memory unless the user explicitly asks.
-            \\- If you reference a memory item, cite it as [mem#ID].
+            \\- Do not claim you updated memory. NEVER! This is done by the Reflection Module. You can say you try to remember, not more.
+            \\- You will see memory updated later. 
+            \\- The Module can not write memory unless the user explicitly asks.
+            \\- If you reference an existing memory item, cite it as [mem#ID].
             \\
             \\
         );

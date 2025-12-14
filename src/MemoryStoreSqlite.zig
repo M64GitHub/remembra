@@ -347,7 +347,7 @@ pub const MemoryStoreSqlite = struct {
         }
 
         if (out.items.len == 0) {
-            const tone = "helpful, concise, grounded";
+            const tone = "helpful, concise, grounded, engaging";
             const contract =
                 "Memory is read-only unless the user explicitly asks " ++
                 "to store/update something.";
