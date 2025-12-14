@@ -1,14 +1,13 @@
 const std = @import("std");
 const Types = @import("Types.zig");
 const ReflectionProposal = @import("Reflector.zig").ReflectionProposal;
-const MemoryStoreMock = @import("MemoryStoreMock.zig").MemoryStoreMock;
 const MemoryPolicy = @import("MemoryPolicy.zig").MemoryPolicy;
 const Cli = @import("Cli.zig").Cli;
 
 pub const Governor = struct {
     pub fn apply(
         allocator: std.mem.Allocator,
-        store: *MemoryStoreMock,
+        store: anytype,
         policy: MemoryPolicy,
         proposals: []const ReflectionProposal,
         cli: *Cli,
@@ -32,16 +31,25 @@ pub const Governor = struct {
             );
             if (last_time) |t| {
                 if (now - t < 30_000) {
-                    cli.msg(.wrn, "[Governor] rate-limited key {s}.{s} (wait {d}s)", .{
-                        p.subject,
-                        p.predicate,
-                        @divFloor(30_000 - (now - t), 1000),
-                    });
+                    cli.msg(
+                        .wrn,
+                        "[Governor] rate-limited key {s}.{s} (wait {d}s)",
+                        .{
+                            p.subject,
+                            p.predicate,
+                            @divFloor(30_000 - (now - t), 1000),
+                        },
+                    );
                     continue;
                 }
             }
 
-            if (store.hasActiveMemoryExact(p.kind, p.subject, p.predicate, p.object)) {
+            if (store.hasActiveMemoryExact(
+                p.kind,
+                p.subject,
+                p.predicate,
+                p.object,
+            )) {
                 cli.msg(.inf, "[Governor] dedupe: already stored", .{});
                 continue;
             }

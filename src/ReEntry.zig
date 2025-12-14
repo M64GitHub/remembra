@@ -48,12 +48,12 @@ test "ReEntry does not trigger below threshold" {
 test "ReEntry builds note correctly" {
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
     defer _ = gpa.deinit();
-    const A = gpa.allocator();
+    const allocator = gpa.allocator();
 
     const now: i64 = 24 * 60 * 60 * 1000;
     const last: i64 = 0;
-    const note = try ReEntry.buildNote(A, now, last);
-    defer A.free(note);
+    const note = try ReEntry.buildNote(allocator, now, last);
+    defer allocator.free(note);
 
     try std.testing.expect(std.mem.indexOf(u8, note, "RE-ENTRY") != null);
 }

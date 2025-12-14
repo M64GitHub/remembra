@@ -52,10 +52,10 @@ test "Temporal gap computes correctly" {
 test "Temporal formatting hours" {
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
     defer _ = gpa.deinit();
-    const A = gpa.allocator();
+    const allocator = gpa.allocator();
 
-    const s = try Temporal.formatDuration(A, 7 * 60 * 60 * 1000 + 2 * 60 * 1000);
-    defer A.free(s);
+    const s = try Temporal.formatDuration(allocator, 7 * 60 * 60 * 1000 + 2 * 60 * 1000);
+    defer allocator.free(s);
 
     try std.testing.expectEqualStrings("7h 2m", s);
 }
@@ -63,10 +63,10 @@ test "Temporal formatting hours" {
 test "Temporal formatting days" {
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
     defer _ = gpa.deinit();
-    const A = gpa.allocator();
+    const allocator = gpa.allocator();
 
-    const s = try Temporal.formatDuration(A, 3 * 24 * 60 * 60 * 1000);
-    defer A.free(s);
+    const s = try Temporal.formatDuration(allocator, 3 * 24 * 60 * 60 * 1000);
+    defer allocator.free(s);
 
     try std.testing.expectEqualStrings("3d 0h 0m", s);
 }
@@ -74,10 +74,10 @@ test "Temporal formatting days" {
 test "Temporal formatting minutes only" {
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
     defer _ = gpa.deinit();
-    const A = gpa.allocator();
+    const allocator = gpa.allocator();
 
-    const s = try Temporal.formatDuration(A, 45 * 60 * 1000);
-    defer A.free(s);
+    const s = try Temporal.formatDuration(allocator, 45 * 60 * 1000);
+    defer allocator.free(s);
 
     try std.testing.expectEqualStrings("45m", s);
 }

@@ -94,7 +94,11 @@ pub const MemoryStoreMock = struct {
         if (role == .user) self.last_user_msg_ms = now;
     }
 
-    pub fn loadRecentMessages(self: *MemoryStoreMock, allocator: std.mem.Allocator, max_count: usize) ![]Types.Message {
+    pub fn loadRecentMessages(
+        self: *MemoryStoreMock,
+        allocator: std.mem.Allocator,
+        max_count: usize,
+    ) ![]Types.Message {
         const total = self.messages.items.len;
         const n = if (total < max_count) total else max_count;
 
@@ -116,8 +120,14 @@ pub const MemoryStoreMock = struct {
         });
     }
 
-    pub fn loadIdentityCore(self: *MemoryStoreMock, allocator: std.mem.Allocator) ![]Types.IdentityEntry {
-        const out = try allocator.alloc(Types.IdentityEntry, self.identity.items.len);
+    pub fn loadIdentityCore(
+        self: *MemoryStoreMock,
+        allocator: std.mem.Allocator,
+    ) ![]Types.IdentityEntry {
+        const out = try allocator.alloc(
+            Types.IdentityEntry,
+            self.identity.items.len,
+        );
         for (out, 0..) |*dst, i| dst.* = self.identity.items[i];
         return out;
     }
@@ -168,8 +178,14 @@ pub const MemoryStoreMock = struct {
         return out;
     }
 
-    pub fn loadAllMemoryItems(self: *MemoryStoreMock, allocator: std.mem.Allocator) ![]Types.MemoryItem {
-        const out = try allocator.alloc(Types.MemoryItem, self.memory.items.len);
+    pub fn loadAllMemoryItems(
+        self: *MemoryStoreMock,
+        allocator: std.mem.Allocator,
+    ) ![]Types.MemoryItem {
+        const out = try allocator.alloc(
+            Types.MemoryItem,
+            self.memory.items.len,
+        );
         for (out, 0..) |*dst, i| dst.* = self.memory.items[i];
         return out;
     }
@@ -203,7 +219,11 @@ pub const MemoryStoreMock = struct {
         return id;
     }
 
-    fn resolveConflicts(self: *MemoryStoreMock, policy: MemoryPolicy, new_id: i64) void {
+    fn resolveConflicts(
+        self: *MemoryStoreMock,
+        policy: MemoryPolicy,
+        new_id: i64,
+    ) void {
         const new_idx_opt = self.findMemoryIndexById(new_id);
         if (new_idx_opt == null) return;
         const new_idx = new_idx_opt.?;
@@ -243,7 +263,11 @@ pub const MemoryStoreMock = struct {
         return null;
     }
 
-    pub fn decayMemory(self: *MemoryStoreMock, policy: MemoryPolicy, now_ms: i64) void {
+    pub fn decayMemory(
+        self: *MemoryStoreMock,
+        policy: MemoryPolicy,
+        now_ms: i64,
+    ) void {
         for (self.memory.items) |*m| {
             if (!m.is_active) continue;
 
@@ -268,7 +292,11 @@ pub const MemoryStoreMock = struct {
         max_count: usize,
     ) ![]Types.Message {
         const total = self.messages.items.len;
-        const start = if (self.episode_cutoff_index > total) total else self.episode_cutoff_index;
+        const start =
+            if (self.episode_cutoff_index > total)
+                total
+            else
+                self.episode_cutoff_index;
 
         const available = total - start;
         const n = if (available < max_count) available else max_count;
@@ -316,7 +344,11 @@ pub const MemoryStoreMock = struct {
             if (!std.mem.eql(u8, m.subject, subject)) continue;
             if (!std.mem.eql(u8, m.predicate, predicate)) continue;
 
-            const t = if (m.updated_at_ms > 0) m.updated_at_ms else m.created_at_ms;
+            const t =
+                if (m.updated_at_ms > 0)
+                    m.updated_at_ms
+                else
+                    m.created_at_ms;
             if (t > best_time) {
                 best_time = t;
                 best_obj = m.object;
@@ -329,14 +361,14 @@ pub const MemoryStoreMock = struct {
 test "MemoryStoreMock conflict resolution keeps higher confidence" {
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
     defer _ = gpa.deinit();
-    const A = gpa.allocator();
+    const allocator = gpa.allocator();
 
-    var store = MemoryStoreMock.init(A);
-    defer store.deinit(A);
+    var store = MemoryStoreMock.init(allocator);
+    defer store.deinit(allocator);
 
     const policy = MemoryPolicy{};
 
-    _ = try store.addMemoryGoverned(A, policy, .{
+    _ = try store.addMemoryGoverned(allocator, policy, .{
         .kind = .note,
         .subject = "user",
         .predicate = "intent",
@@ -345,7 +377,7 @@ test "MemoryStoreMock conflict resolution keeps higher confidence" {
         .is_active = true,
     });
 
-    _ = try store.addMemoryGoverned(A, policy, .{
+    _ = try store.addMemoryGoverned(allocator, policy, .{
         .kind = .note,
         .subject = "user",
         .predicate = "intent",
@@ -360,26 +392,26 @@ test "MemoryStoreMock conflict resolution keeps higher confidence" {
     }
     try std.testing.expectEqual(@as(usize, 1), active_count);
 
-    const active = try store.loadMemoryItems(A, 10);
-    defer A.free(active);
+    const active = try store.loadMemoryItems(allocator, 10);
+    defer allocator.free(active);
     try std.testing.expectEqualStrings("wants B", active[0].object);
 }
 
 test "Episode cutoff slices messages correctly" {
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
     defer _ = gpa.deinit();
-    const A = gpa.allocator();
+    const allocator = gpa.allocator();
 
-    var store = MemoryStoreMock.init(A);
-    defer store.deinit(A);
+    var store = MemoryStoreMock.init(allocator);
+    defer store.deinit(allocator);
 
-    try store.insertMessage(A, .user, "a");
-    try store.insertMessage(A, .assistant, "b");
+    try store.insertMessage(allocator, .user, "a");
+    try store.insertMessage(allocator, .assistant, "b");
     store.advanceEpisodeCutoffToEnd();
-    try store.insertMessage(A, .user, "c");
+    try store.insertMessage(allocator, .user, "c");
 
-    const slice = try store.loadMessagesSinceCutoff(A, 10);
-    defer A.free(slice);
+    const slice = try store.loadMessagesSinceCutoff(allocator, 10);
+    defer allocator.free(slice);
 
     try std.testing.expectEqual(@as(usize, 1), slice.len);
     try std.testing.expectEqualStrings("c", slice[0].content);

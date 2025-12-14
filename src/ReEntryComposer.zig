@@ -41,7 +41,10 @@ pub const ReEntryComposer = struct {
 
         if (last_episode_summary) |episode| {
             try out.appendSlice(allocator, "- last_episode_summary:\n  ");
-            try out.appendSlice(allocator, truncate(episode, params.max_episode_chars));
+            try out.appendSlice(allocator, truncate(
+                episode,
+                params.max_episode_chars,
+            ));
             try out.append(allocator, '\n');
         } else {
             try out.appendSlice(allocator, "- last_episode_summary: (none)\n");
@@ -49,7 +52,10 @@ pub const ReEntryComposer = struct {
 
         if (last_idle_thought) |thought| {
             try out.appendSlice(allocator, "- last_idle_thought:\n  ");
-            try out.appendSlice(allocator, truncate(thought, params.max_thought_chars));
+            try out.appendSlice(allocator, truncate(
+                thought,
+                params.max_thought_chars,
+            ));
             try out.append(allocator, '\n');
         } else {
             try out.appendSlice(allocator, "- last_idle_thought: (none)\n");
@@ -68,19 +74,25 @@ pub const ReEntryComposer = struct {
 
 test "ReEntryComposer shouldTrigger" {
     const params = ReEntryComposer.Params{ .threshold_ms = 1000 };
-    try std.testing.expect(ReEntryComposer.shouldTrigger(5000, 0, params) == false);
-    try std.testing.expect(ReEntryComposer.shouldTrigger(5000, 4500, params) == false);
-    try std.testing.expect(ReEntryComposer.shouldTrigger(5000, 3000, params) == true);
+    try std.testing.expect(
+        ReEntryComposer.shouldTrigger(5000, 0, params) == false,
+    );
+    try std.testing.expect(
+        ReEntryComposer.shouldTrigger(5000, 4500, params) == false,
+    );
+    try std.testing.expect(
+        ReEntryComposer.shouldTrigger(5000, 3000, params) == true,
+    );
 }
 
 test "ReEntryComposer builds with all parts" {
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
     defer _ = gpa.deinit();
-    const A = gpa.allocator();
+    const allocator = gpa.allocator();
 
     const params = ReEntryComposer.Params{ .threshold_ms = 1000 };
     const s_opt = try ReEntryComposer.buildFromParts(
-        A,
+        allocator,
         5000,
         3000,
         "Episode summary text",
@@ -90,21 +102,33 @@ test "ReEntryComposer builds with all parts" {
     try std.testing.expect(s_opt != null);
 
     const s = s_opt.?;
-    defer A.free(s);
+    defer allocator.free(s);
 
-    try std.testing.expect(std.mem.indexOf(u8, s, "RE-ENTRY CONTEXT") != null);
-    try std.testing.expect(std.mem.indexOf(u8, s, "Episode summary text") != null);
-    try std.testing.expect(std.mem.indexOf(u8, s, "Idle thought text") != null);
+    try std.testing.expect(std.mem.indexOf(
+        u8,
+        s,
+        "RE-ENTRY CONTEXT",
+    ) != null);
+    try std.testing.expect(std.mem.indexOf(
+        u8,
+        s,
+        "Episode summary text",
+    ) != null);
+    try std.testing.expect(std.mem.indexOf(
+        u8,
+        s,
+        "Idle thought text",
+    ) != null);
 }
 
 test "ReEntryComposer returns null below threshold" {
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
     defer _ = gpa.deinit();
-    const A = gpa.allocator();
+    const allocator = gpa.allocator();
 
     const params = ReEntryComposer.Params{ .threshold_ms = 10000 };
     const s_opt = try ReEntryComposer.buildFromParts(
-        A,
+        allocator,
         5000,
         3000,
         "EP",
@@ -117,11 +141,11 @@ test "ReEntryComposer returns null below threshold" {
 test "ReEntryComposer handles null parts" {
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
     defer _ = gpa.deinit();
-    const A = gpa.allocator();
+    const allocator = gpa.allocator();
 
     const params = ReEntryComposer.Params{ .threshold_ms = 1000 };
     const s_opt = try ReEntryComposer.buildFromParts(
-        A,
+        allocator,
         5000,
         3000,
         null,
@@ -131,7 +155,7 @@ test "ReEntryComposer handles null parts" {
     try std.testing.expect(s_opt != null);
 
     const s = s_opt.?;
-    defer A.free(s);
+    defer allocator.free(s);
 
     try std.testing.expect(std.mem.indexOf(u8, s, "(none)") != null);
 }

@@ -14,7 +14,9 @@ pub const MemoryPolicy = struct {
         if (age_ms <= 0) return clamp01(initial);
         if (self.half_life_ms <= 0) return clamp01(initial);
 
-        const exponent: f64 = @as(f64, @floatFromInt(age_ms)) / @as(f64, @floatFromInt(self.half_life_ms));
+        const exponent: f64 = @as(f64, @floatFromInt(age_ms)) /
+            @as(f64, @floatFromInt(self.half_life_ms));
+
         const factor: f64 = std.math.pow(f64, 0.5, exponent);
         const decayed: f64 = @as(f64, initial) * factor;
 

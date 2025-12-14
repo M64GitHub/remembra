@@ -30,7 +30,10 @@ pub const EpisodeCompactor = struct {
         return parseEpisodeJson(allocator, json);
     }
 
-    fn buildPrompt(allocator: std.mem.Allocator, msgs: []const Types.Message) ![]u8 {
+    fn buildPrompt(
+        allocator: std.mem.Allocator,
+        msgs: []const Types.Message,
+    ) ![]u8 {
         var out: std.ArrayList(u8) = .empty;
         errdefer out.deinit(allocator);
 
@@ -59,17 +62,29 @@ pub const EpisodeCompactor = struct {
         return out.toOwnedSlice(allocator);
     }
 
-    pub fn parseEpisodeJson(allocator: std.mem.Allocator, json: []const u8) !EpisodeSummary {
-        var parsed = try std.json.parseFromSlice(std.json.Value, allocator, json, .{});
+    pub fn parseEpisodeJson(
+        allocator: std.mem.Allocator,
+        json: []const u8,
+    ) !EpisodeSummary {
+        var parsed = try std.json.parseFromSlice(
+            std.json.Value,
+            allocator,
+            json,
+            .{},
+        );
         defer parsed.deinit();
 
         if (parsed.value != .object) return error.InvalidEpisodeJson;
         const root = parsed.value.object;
 
-        const title_v = root.get("title") orelse return error.InvalidEpisodeJson;
-        const summary_v = root.get("summary") orelse return error.InvalidEpisodeJson;
+        const title_v = root.get("title") orelse
+            return error.InvalidEpisodeJson;
 
-        if (title_v != .string or summary_v != .string) return error.InvalidEpisodeJson;
+        const summary_v = root.get("summary") orelse
+            return error.InvalidEpisodeJson;
+
+        if (title_v != .string or summary_v != .string)
+            return error.InvalidEpisodeJson;
 
         return .{
             .title = try allocator.dupe(u8, title_v.string),
@@ -81,13 +96,13 @@ pub const EpisodeCompactor = struct {
 test "EpisodeCompactor parses JSON" {
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
     defer _ = gpa.deinit();
-    const A = gpa.allocator();
+    const allocator = gpa.allocator();
 
     const json = "{ \"title\": \"T\", \"summary\": \"S\" }";
-    const ep = try EpisodeCompactor.parseEpisodeJson(A, json);
+    const ep = try EpisodeCompactor.parseEpisodeJson(allocator, json);
     defer {
-        A.free(ep.title);
-        A.free(ep.summary);
+        allocator.free(ep.title);
+        allocator.free(ep.summary);
     }
 
     try std.testing.expectEqualStrings("T", ep.title);

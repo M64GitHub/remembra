@@ -2,8 +2,16 @@ const std = @import("std");
 
 /// Extracts choices[0].message.content from an OpenAI-like JSON string.
 /// Returns an owned string (allocator-owned).
-pub fn extractAssistantContent(allocator: std.mem.Allocator, json: []const u8) ![]u8 {
-    var parsed = try std.json.parseFromSlice(std.json.Value, allocator, json, .{});
+pub fn extractAssistantContent(
+    allocator: std.mem.Allocator,
+    json: []const u8,
+) ![]u8 {
+    var parsed = try std.json.parseFromSlice(
+        std.json.Value,
+        allocator,
+        json,
+        .{},
+    );
     defer parsed.deinit();
 
     if (parsed.value != .object) return error.InvalidJson;
@@ -26,12 +34,12 @@ pub fn extractAssistantContent(allocator: std.mem.Allocator, json: []const u8) !
 }
 
 test "OpenAiCompat extracts content" {
-    const A = std.testing.allocator;
+    const allocator = std.testing.allocator;
 
     const sample =
         "{\"choices\":[{\"message\":{\"role\":\"assistant\",\"content\":\"hello\"}}]}";
-    const s = try extractAssistantContent(A, sample);
-    defer A.free(s);
+    const s = try extractAssistantContent(allocator, sample);
+    defer allocator.free(s);
 
     try std.testing.expectEqualStrings("hello", s);
 }
