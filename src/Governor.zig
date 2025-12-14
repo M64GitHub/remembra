@@ -69,8 +69,12 @@ pub const Governor = struct {
 
     fn isAllowed(p: ReflectionProposal) bool {
         if (p.action != .add) return false;
-        if (p.kind != .note) return false;
         if (p.confidence < 0.6) return false;
+
+        const valid_kind = (p.kind == .note) or
+            (p.kind == .fact) or
+            (p.kind == .preference);
+        if (!valid_kind) return false;
 
         const valid_subject = std.mem.eql(u8, p.subject, "user") or
             std.mem.eql(u8, p.subject, "self");

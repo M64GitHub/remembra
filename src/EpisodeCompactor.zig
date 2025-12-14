@@ -1,6 +1,6 @@
 const std = @import("std");
 const Types = @import("Types.zig");
-const Provider = @import("Provider.zig").Provider;
+const JsonUtils = @import("JsonUtils.zig");
 
 pub const EpisodeSummary = struct {
     title: []const u8,
@@ -10,7 +10,7 @@ pub const EpisodeSummary = struct {
 pub const EpisodeCompactor = struct {
     pub fn run(
         allocator: std.mem.Allocator,
-        provider: *Provider,
+        provider: anytype,
         msgs: []const Types.Message,
     ) !EpisodeSummary {
         const prompt = try buildPrompt(allocator, msgs);
@@ -18,16 +18,27 @@ pub const EpisodeCompactor = struct {
 
         const call_msgs = &[_]Types.Message{
             .{ .role = .system, .content = prompt, .created_at_ms = 0 },
+            .{
+                .role = .user,
+                .content = "Summarize and output JSON.",
+                .created_at_ms = 0,
+            },
         };
 
-        const json = try provider.chat(allocator, call_msgs, .{
+        const response = try provider.chat(allocator, call_msgs, .{
             .model = "mock-episode",
             .temperature = 0.2,
             .max_tokens = 512,
         });
-        defer allocator.free(json);
+        defer allocator.free(response);
 
-        return parseEpisodeJson(allocator, json);
+        const extracted = JsonUtils.extractJsonObject(response);
+        return parseEpisodeJson(allocator, extracted) catch {
+            return .{
+                .title = try allocator.dupe(u8, "Episode"),
+                .summary = try allocator.dupe(u8, response),
+            };
+        };
     }
 
     fn buildPrompt(

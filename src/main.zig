@@ -1,7 +1,8 @@
 const std = @import("std");
 const version = @import("version.zig");
 const Types = @import("Types.zig");
-const Provider = @import("Provider.zig").Provider;
+const ProviderMock = @import("Provider.zig").Provider;
+const ProviderOllama = @import("ProviderOllama.zig").ProviderOllama;
 const MemoryStoreMock = @import("MemoryStoreMock.zig").MemoryStoreMock;
 const MemoryStoreSqlite = @import("MemoryStoreSqlite.zig").MemoryStoreSqlite;
 const PromptBuilder = @import("PromptBuilder.zig").PromptBuilder;
@@ -15,6 +16,9 @@ const Intent = @import("Intent.zig");
 const IdleThinker = @import("IdleThinker.zig").IdleThinker;
 
 const USE_SQLITE = true;
+const USE_OLLAMA = true;
+const OLLAMA_URL = "http://127.0.0.1:11434";
+const OLLAMA_MODEL = "llama3.2";
 
 fn readLine(file: std.fs.File, buf: []u8) !?[]u8 {
     var i: usize = 0;
@@ -51,8 +55,15 @@ pub fn main() !void {
 
     cli.msg(.inf, "Starting up ...", .{});
 
-    var provider = Provider.init();
-    defer provider.deinit();
+    const Provider = if (USE_OLLAMA) ProviderOllama else ProviderMock;
+
+    var provider = if (USE_OLLAMA)
+        try ProviderOllama.init(allocator, OLLAMA_URL, OLLAMA_MODEL)
+    else
+        ProviderMock.init();
+    defer if (USE_OLLAMA) provider.deinit(allocator) else provider.deinit();
+
+    _ = Provider;
 
     const Store = if (USE_SQLITE) MemoryStoreSqlite else MemoryStoreMock;
 
@@ -73,7 +84,11 @@ pub fn main() !void {
     const stdin_file: std.fs.File = .{ .handle = std.posix.STDIN_FILENO };
 
     cli.msg(.hil, "{s} {s}", .{ version.name, version.version });
-    cli.msg(.inf, "Phase 11: SQLite persistence.", .{});
+    if (USE_OLLAMA) {
+        cli.msg(.inf, "Ollama provider ({s}).", .{OLLAMA_MODEL});
+    } else {
+        cli.msg(.inf, "Mock provider.", .{});
+    }
     if (USE_SQLITE) {
         cli.msg(
             .inf,
