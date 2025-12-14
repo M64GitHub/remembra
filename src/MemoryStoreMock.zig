@@ -3,8 +3,6 @@ const Types = @import("Types.zig");
 const MemoryPolicy = @import("MemoryPolicy.zig").MemoryPolicy;
 
 pub const MemoryStoreMock = struct {
-    allocator: std.mem.Allocator,
-
     messages: std.ArrayList(Types.Message),
     identity: std.ArrayList(Types.IdentityEntry),
     memory: std.ArrayList(Types.MemoryItem),
@@ -17,37 +15,38 @@ pub const MemoryStoreMock = struct {
 
     pub fn init(allocator: std.mem.Allocator) MemoryStoreMock {
         var s = MemoryStoreMock{
-            .allocator = allocator,
             .messages = .empty,
             .identity = .empty,
             .memory = .empty,
             .next_memory_id = 1,
         };
 
-        // Default identity core (Phase 2).
-        // Keep it short; later phases will expand.
-        s.addIdentityEntry("tone", "helpful, concise, grounded") catch {};
-        s.addIdentityEntry("memory_contract", "Memory is read-only unless the user explicitly asks to store/update something.") catch {};
+        const tone_val = "helpful, concise, grounded";
+        const contract_val =
+            "Memory is read-only unless the user explicitly asks " ++
+            "to store/update something.";
+        s.addIdentityEntry(allocator, "tone", tone_val) catch {};
+        s.addIdentityEntry(allocator, "memory_contract", contract_val) catch {};
 
         return s;
     }
 
-    pub fn deinit(self: *MemoryStoreMock) void {
-        for (self.messages.items) |m| self.allocator.free(@constCast(m.content));
-        self.messages.deinit(self.allocator);
+    pub fn deinit(self: *MemoryStoreMock, allocator: std.mem.Allocator) void {
+        for (self.messages.items) |m| allocator.free(@constCast(m.content));
+        self.messages.deinit(allocator);
 
         for (self.identity.items) |e| {
-            self.allocator.free(@constCast(e.key));
-            self.allocator.free(@constCast(e.value));
+            allocator.free(@constCast(e.key));
+            allocator.free(@constCast(e.value));
         }
-        self.identity.deinit(self.allocator);
+        self.identity.deinit(allocator);
 
         for (self.memory.items) |m| {
-            self.allocator.free(@constCast(m.subject));
-            self.allocator.free(@constCast(m.predicate));
-            self.allocator.free(@constCast(m.object));
+            allocator.free(@constCast(m.subject));
+            allocator.free(@constCast(m.predicate));
+            allocator.free(@constCast(m.object));
         }
-        self.memory.deinit(self.allocator);
+        self.memory.deinit(allocator);
     }
 
     pub fn nowMs(self: *MemoryStoreMock) i64 {
@@ -82,13 +81,14 @@ pub const MemoryStoreMock = struct {
 
     pub fn insertMessage(
         self: *MemoryStoreMock,
+        allocator: std.mem.Allocator,
         role: Types.Role,
         content: []const u8,
     ) !void {
         const now = self.nowMs();
-        try self.messages.append(self.allocator, .{
+        try self.messages.append(allocator, .{
             .role = role,
-            .content = try self.allocator.dupe(u8, content),
+            .content = try allocator.dupe(u8, content),
             .created_at_ms = now,
         });
         if (role == .user) self.last_user_msg_ms = now;
@@ -104,10 +104,15 @@ pub const MemoryStoreMock = struct {
         return out;
     }
 
-    pub fn addIdentityEntry(self: *MemoryStoreMock, key: []const u8, value: []const u8) !void {
-        try self.identity.append(self.allocator, .{
-            .key = try self.allocator.dupe(u8, key),
-            .value = try self.allocator.dupe(u8, value),
+    pub fn addIdentityEntry(
+        self: *MemoryStoreMock,
+        allocator: std.mem.Allocator,
+        key: []const u8,
+        value: []const u8,
+    ) !void {
+        try self.identity.append(allocator, .{
+            .key = try allocator.dupe(u8, key),
+            .value = try allocator.dupe(u8, value),
         });
     }
 
@@ -117,7 +122,11 @@ pub const MemoryStoreMock = struct {
         return out;
     }
 
-    pub fn addMemory(self: *MemoryStoreMock, item: Types.MemoryItem) !i64 {
+    pub fn addMemory(
+        self: *MemoryStoreMock,
+        allocator: std.mem.Allocator,
+        item: Types.MemoryItem,
+    ) !i64 {
         const now = self.nowMs();
         var m = item;
 
@@ -127,18 +136,19 @@ pub const MemoryStoreMock = struct {
         m.created_at_ms = now;
         m.updated_at_ms = now;
 
-        // Duplicate strings for store ownership.
-        m.subject = try self.allocator.dupe(u8, m.subject);
-        m.predicate = try self.allocator.dupe(u8, m.predicate);
-        m.object = try self.allocator.dupe(u8, m.object);
+        m.subject = try allocator.dupe(u8, m.subject);
+        m.predicate = try allocator.dupe(u8, m.predicate);
+        m.object = try allocator.dupe(u8, m.object);
 
-        try self.memory.append(self.allocator, m);
+        try self.memory.append(allocator, m);
         return m.id;
     }
 
-    pub fn loadMemoryItems(self: *MemoryStoreMock, allocator: std.mem.Allocator, max_count: usize) ![]Types.MemoryItem {
-        // Return newest active items, capped by max_count.
-        // Simple strategy for Phase 2: scan backwards, collect up to N, then reverse.
+    pub fn loadMemoryItems(
+        self: *MemoryStoreMock,
+        allocator: std.mem.Allocator,
+        max_count: usize,
+    ) ![]Types.MemoryItem {
         var tmp: std.ArrayList(Types.MemoryItem) = .empty;
         defer tmp.deinit(allocator);
 
@@ -150,7 +160,6 @@ pub const MemoryStoreMock = struct {
             try tmp.append(allocator, m);
         }
 
-        // Reverse to chronological-ish order.
         const out = try allocator.alloc(Types.MemoryItem, tmp.items.len);
         var j: usize = 0;
         while (j < tmp.items.len) : (j += 1) {
@@ -183,11 +192,13 @@ pub const MemoryStoreMock = struct {
         return false;
     }
 
-    /// Adds memory with conflict resolution.
-    /// Conflict key = (kind, subject, predicate), conflict if object differs.
-    /// Keeps higher-confidence item active; deactivates weaker.
-    pub fn addMemoryGoverned(self: *MemoryStoreMock, policy: MemoryPolicy, item: Types.MemoryItem) !i64 {
-        const id = try self.addMemory(item);
+    pub fn addMemoryGoverned(
+        self: *MemoryStoreMock,
+        allocator: std.mem.Allocator,
+        policy: MemoryPolicy,
+        item: Types.MemoryItem,
+    ) !i64 {
+        const id = try self.addMemory(allocator, item);
         self.resolveConflicts(policy, id);
         return id;
     }
@@ -199,7 +210,6 @@ pub const MemoryStoreMock = struct {
         var new_item = &self.memory.items[new_idx];
         if (!new_item.is_active) return;
 
-        // Journal-style items should not conflict-resolve.
         if (std.mem.eql(u8, new_item.predicate, "says")) return;
         if (std.mem.eql(u8, new_item.subject, "episode")) return;
 
@@ -210,7 +220,6 @@ pub const MemoryStoreMock = struct {
             if (!std.mem.eql(u8, old_item.subject, new_item.subject)) continue;
             if (!std.mem.eql(u8, old_item.predicate, new_item.predicate)) continue;
 
-            // Same key, different object => conflict
             if (std.mem.eql(u8, old_item.object, new_item.object)) continue;
 
             const old_conf = old_item.confidence;
@@ -234,7 +243,6 @@ pub const MemoryStoreMock = struct {
         return null;
     }
 
-    /// Decay confidence and deactivate stale items.
     pub fn decayMemory(self: *MemoryStoreMock, policy: MemoryPolicy, now_ms: i64) void {
         for (self.memory.items) |*m| {
             if (!m.is_active) continue;
@@ -254,8 +262,11 @@ pub const MemoryStoreMock = struct {
         }
     }
 
-    /// Returns messages since last episode cutoff (caller owns slice container).
-    pub fn loadMessagesSinceCutoff(self: *MemoryStoreMock, allocator: std.mem.Allocator, max_count: usize) ![]Types.Message {
+    pub fn loadMessagesSinceCutoff(
+        self: *MemoryStoreMock,
+        allocator: std.mem.Allocator,
+        max_count: usize,
+    ) ![]Types.Message {
         const total = self.messages.items.len;
         const start = if (self.episode_cutoff_index > total) total else self.episode_cutoff_index;
 
@@ -267,7 +278,6 @@ pub const MemoryStoreMock = struct {
         return out;
     }
 
-    /// Advance episode cutoff to end of message list.
     pub fn advanceEpisodeCutoffToEnd(self: *MemoryStoreMock) void {
         self.episode_cutoff_index = self.messages.items.len;
     }
@@ -276,7 +286,6 @@ pub const MemoryStoreMock = struct {
         return self.episode_cutoff_index;
     }
 
-    /// Returns the most recent created_at_ms for an active memory with given key.
     pub fn lastActiveMemoryTimeForKey(
         self: *MemoryStoreMock,
         kind: Types.MemoryKind,
@@ -323,11 +332,11 @@ test "MemoryStoreMock conflict resolution keeps higher confidence" {
     const A = gpa.allocator();
 
     var store = MemoryStoreMock.init(A);
-    defer store.deinit();
+    defer store.deinit(A);
 
     const policy = MemoryPolicy{};
 
-    _ = try store.addMemoryGoverned(policy, .{
+    _ = try store.addMemoryGoverned(A, policy, .{
         .kind = .note,
         .subject = "user",
         .predicate = "intent",
@@ -336,7 +345,7 @@ test "MemoryStoreMock conflict resolution keeps higher confidence" {
         .is_active = true,
     });
 
-    _ = try store.addMemoryGoverned(policy, .{
+    _ = try store.addMemoryGoverned(A, policy, .{
         .kind = .note,
         .subject = "user",
         .predicate = "intent",
@@ -362,12 +371,12 @@ test "Episode cutoff slices messages correctly" {
     const A = gpa.allocator();
 
     var store = MemoryStoreMock.init(A);
-    defer store.deinit();
+    defer store.deinit(A);
 
-    try store.insertMessage(.user, "a");
-    try store.insertMessage(.assistant, "b");
+    try store.insertMessage(A, .user, "a");
+    try store.insertMessage(A, .assistant, "b");
     store.advanceEpisodeCutoffToEnd();
-    try store.insertMessage(.user, "c");
+    try store.insertMessage(A, .user, "c");
 
     const slice = try store.loadMessagesSinceCutoff(A, 10);
     defer A.free(slice);

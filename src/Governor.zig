@@ -7,6 +7,7 @@ const Cli = @import("Cli.zig").Cli;
 
 pub const Governor = struct {
     pub fn apply(
+        allocator: std.mem.Allocator,
         store: *MemoryStoreMock,
         policy: MemoryPolicy,
         proposals: []const ReflectionProposal,
@@ -16,12 +17,20 @@ pub const Governor = struct {
 
         for (proposals) |p| {
             if (!isAllowed(p)) {
-                cli.msg(.wrn, "[Governor] rejected: {s}.{s}={s}", .{ p.subject, p.predicate, p.object });
+                cli.msg(.wrn, "[Governor] rejected: {s}.{s}={s}", .{
+                    p.subject,
+                    p.predicate,
+                    p.object,
+                });
                 continue;
             }
 
-            // Rate limit: 30s per (kind, subject, predicate) key
-            if (store.lastActiveMemoryTimeForKey(p.kind, p.subject, p.predicate)) |t| {
+            const last_time = store.lastActiveMemoryTimeForKey(
+                p.kind,
+                p.subject,
+                p.predicate,
+            );
+            if (last_time) |t| {
                 if (now - t < 30_000) {
                     cli.msg(.wrn, "[Governor] rate-limited key {s}.{s} (wait {d}s)", .{
                         p.subject,
@@ -32,13 +41,12 @@ pub const Governor = struct {
                 }
             }
 
-            // Dedupe check
             if (store.hasActiveMemoryExact(p.kind, p.subject, p.predicate, p.object)) {
                 cli.msg(.inf, "[Governor] dedupe: already stored", .{});
                 continue;
             }
 
-            const id = try store.addMemoryGoverned(policy, .{
+            const id = try store.addMemoryGoverned(allocator, policy, .{
                 .kind = p.kind,
                 .subject = p.subject,
                 .predicate = p.predicate,
@@ -52,21 +60,14 @@ pub const Governor = struct {
     }
 
     fn isAllowed(p: ReflectionProposal) bool {
-        // Rule 1: Only "add" actions allowed
         if (p.action != .add) return false;
-
-        // Rule 2: Only note kind allowed
         if (p.kind != .note) return false;
-
-        // Rule 3: Confidence must be >= 0.6
         if (p.confidence < 0.6) return false;
 
-        // Rule 4: Subject must be "user" or "self"
-        if (!std.mem.eql(u8, p.subject, "user") and
-            !std.mem.eql(u8, p.subject, "self"))
-            return false;
+        const valid_subject = std.mem.eql(u8, p.subject, "user") or
+            std.mem.eql(u8, p.subject, "self");
+        if (!valid_subject) return false;
 
-        // Rule 5: No inferred facts/preferences
         if (std.mem.eql(u8, p.predicate, "likes")) return false;
         if (std.mem.eql(u8, p.predicate, "is")) return false;
 

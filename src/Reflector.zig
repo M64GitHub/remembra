@@ -3,7 +3,6 @@ const Types = @import("Types.zig");
 const Provider = @import("Provider.zig").Provider;
 const Cli = @import("Cli.zig").Cli;
 
-/// A proposed memory operation from the model.
 pub const ReflectionProposal = struct {
     action: Action,
     kind: Types.MemoryKind,

@@ -1,24 +1,6 @@
 const std = @import("std");
 const Allocator = std.mem.Allocator;
 
-/// Structured logging utility for terminal and file output.
-///
-/// Purpose:
-/// - Print colorized messages by severity and category.
-/// - Optionally include timestamps and app prefixes.
-/// - Optionally duplicate output to a log file (uncolored).
-///
-/// Features:
-/// - Color-coded severities (info, warn, error, debug, etc.).
-/// - Themes to control palette.
-/// - Timestamp and app prefix toggles.
-/// - File logging of plain text.
-///
-/// Usage:
-/// - Initialize with Cli.init().
-/// - Use msg(), msg_subj(), or dbg() to emit messages.
-/// - Use enableLogmode() to start file logging.
-/// - Call deinit() to release resources. (close logfile)
 pub const Cli = struct {
     stdout_buffer: [1024]u8 = undefined,
     logfile: ?std.fs.File = null,
@@ -29,10 +11,6 @@ pub const Cli = struct {
     no_color: bool = false,
     theme: Theme = .pro,
 
-    /// Available color themes for terminal output.
-    ///
-    /// Purpose:
-    /// - Select a palette used by MsgKind.colorize().
     pub const Theme = enum {
         default,
         darker,
@@ -42,25 +20,11 @@ pub const Cli = struct {
         violetta,
     };
 
-    /// Parse a theme name from a string.
-    ///
-    /// Purpose:
-    /// - Convert user input into a Theme value.
-    ///
-    /// Parameters:
-    /// - `name`: Case-sensitive enum name.
-    ///
-    /// Returns:
-    /// - Theme on success, null on no match.
     pub fn parseTheme(self: *Cli, name: []const u8) ?Theme {
         _ = self;
         return std.meta.stringToEnum(Theme, name);
     }
 
-    /// Message severity/category.
-    ///
-    /// Purpose:
-    /// - Drive label text and color mapping.
     pub const MsgKind = enum {
         inf,
         wrn,
@@ -75,10 +39,6 @@ pub const Cli = struct {
         run,
         st2,
 
-        /// Return short label string for the kind.
-        ///
-        /// Returns:
-        /// - Lowercase label (e.g. "inf", "err").
         pub fn label(self: MsgKind) []const u8 {
             return switch (self) {
                 .inf => "inf",
@@ -96,21 +56,6 @@ pub const Cli = struct {
             };
         }
 
-        /// Apply ANSI color codes to text based on theme and kind.
-        ///
-        /// Purpose:
-        /// - Produce a colored version of `txt` for terminal output.
-        ///
-        /// Parameters:
-        /// - `theme`: Selected color theme.
-        /// - `txt`: Text to colorize.
-        /// - `out`: Destination buffer.
-        ///
-        /// Returns:
-        /// - Slice of `out` containing the colored text.
-        ///
-        /// Errors:
-        /// - Propagates I/O errors from the writer.
         pub fn colorize(
             self: MsgKind,
             theme: Theme,
@@ -242,19 +187,6 @@ pub const Cli = struct {
         }
     };
 
-    /// Create a new Cli with defaults.
-    ///
-    /// Purpose:
-    /// - Allocate and initialize a Cli instance.
-    ///
-    /// Parameters:
-    /// - `allocator`: For allocation of the instance.
-    ///
-    /// Returns:
-    /// - Pointer to Cli with defaults applied.
-    ///
-    /// Errors:
-    /// - error.OutOfMemory on allocation failure.
     pub fn init(allocator: std.mem.Allocator) !*Cli {
         const ci = try allocator.create(Cli);
         ci.* = Cli{
@@ -264,13 +196,6 @@ pub const Cli = struct {
         return ci;
     }
 
-    /// Destroy the instance and close the log file if open.
-    ///
-    /// Purpose:
-    /// - Release resources owned by Cli.
-    ///
-    /// Parameters:
-    /// - `allocator`: Allocator that owns the instance.
     pub fn deinit(self: *Cli, allocator: std.mem.Allocator) void {
         if (self.logfile) |lf| {
             lf.close();
@@ -278,16 +203,6 @@ pub const Cli = struct {
         allocator.destroy(self);
     }
 
-    /// Enable log-to-file mode by creating a file.
-    ///
-    /// Purpose:
-    /// - Duplicate console output into `name` (uncolored).
-    ///
-    /// Parameters:
-    /// - `name`: Path of log file to create (cwd-relative).
-    ///
-    /// Errors:
-    /// - Propagates file I/O errors.
     pub fn enableLogmode(
         self: *Cli,
         name: []const u8,
@@ -296,10 +211,6 @@ pub const Cli = struct {
         self.logname = name;
     }
 
-    /// Print a message with the given kind.
-    ///
-    /// Purpose:
-    /// - Core emitter for info/warn/error/etc.
     pub fn msg(
         self: *Cli,
         kind: MsgKind,
@@ -309,10 +220,6 @@ pub const Cli = struct {
         self.printInternal(null, kind, fmt, args);
     }
 
-    /// Print a message with kind and subject tag.
-    ///
-    /// Purpose:
-    /// - Attach a subject (e.g. "mytool|init") to the line.
     pub fn msg_subj(
         self: *Cli,
         kind: MsgKind,
@@ -323,10 +230,6 @@ pub const Cli = struct {
         self.printInternal(subject, kind, fmt, args);
     }
 
-    /// Print a debug message if enabled.
-    ///
-    /// Purpose:
-    /// - Emit .dbg/.db2/.db3 depending on debug_level.
     pub fn dbg(self: *Cli, comptime fmt: []const u8, args: anytype) void {
         if (self.debug_level) |d| {
             switch (d) {
@@ -338,14 +241,6 @@ pub const Cli = struct {
         }
     }
 
-    /// Print a prompt without trailing newline.
-    ///
-    /// Purpose:
-    /// - Interactive prompts where user input follows on same line.
-    ///
-    /// Behavior:
-    /// - Prints with .run kind color, no newline.
-    /// - Does NOT log to file (prompts are transient).
     pub fn prompt(self: *Cli, comptime fmt: []const u8, args: anytype) void {
         var stdout_writer = std.fs.File.stdout().writer(&self.stdout_buffer);
         const stdout = &stdout_writer.interface;
@@ -368,16 +263,6 @@ pub const Cli = struct {
         stdout.flush() catch {};
     }
 
-    /// Format, colorize, print, and optionally log to file.
-    ///
-    /// Purpose:
-    /// - Shared path for all message printing.
-    ///
-    /// Behavior:
-    /// - Respects debug_level for dbg/db2/db3.
-    /// - Adds timestamp and app prefix when enabled.
-    /// - Applies color unless no_color is true.
-    /// - Writes plain text to logfile if enabled.
     fn printInternal(
         self: *Cli,
         subject: ?[]const u8,
@@ -436,16 +321,6 @@ pub const Cli = struct {
         }
     }
 
-    /// Check whether the current debug level equals `l`.
-    ///
-    /// Purpose:
-    /// - Allow quick checks in higher-level code.
-    ///
-    /// Parameters:
-    /// - `l`: Level to compare (1..3).
-    ///
-    /// Returns:
-    /// - true if enabled at exactly that level.
     pub fn is_dbg_level(self: *Cli, l: u2) bool {
         if (self.debug_level) |d| {
             if (d == l) return true;

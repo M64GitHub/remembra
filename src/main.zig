@@ -22,7 +22,6 @@ fn readLine(file: std.fs.File, buf: []u8) !?[]u8 {
             return err;
         };
         if (n == 0) {
-            // EOF
             if (i == 0) return null;
             return buf[0..i];
         }
@@ -49,11 +48,11 @@ pub fn main() !void {
 
     cli.msg(.inf, "Starting up ...", .{});
 
-    var provider = Provider.init(A);
+    var provider = Provider.init();
     defer provider.deinit();
 
     var store = MemoryStoreMock.init(A);
-    defer store.deinit();
+    defer store.deinit(A);
 
     const policy = MemoryPolicy{};
 
@@ -77,10 +76,8 @@ pub fn main() !void {
         const line = std.mem.trimRight(u8, line_opt.?, "\r\n");
         if (line.len == 0) continue;
 
-        // Exit command
         if (std.mem.eql(u8, line, "/quit")) break;
 
-        // Command: list memory
         if (std.mem.eql(u8, line, "/mem ls")) {
             const all = try store.loadAllMemoryItems(A);
             defer A.free(all);
@@ -109,7 +106,6 @@ pub fn main() !void {
             continue;
         }
 
-        // Command: add memory
         if (std.mem.startsWith(u8, line, "/mem add ")) {
             const rest = line["/mem add ".len..];
             if (rest.len == 0) {
@@ -117,7 +113,7 @@ pub fn main() !void {
                 continue;
             }
 
-            const id = try store.addMemoryGoverned(policy, .{
+            const id = try store.addMemoryGoverned(A, policy, .{
                 .kind = .note,
                 .subject = "user",
                 .predicate = "says",
@@ -130,7 +126,6 @@ pub fn main() !void {
             continue;
         }
 
-        // Command: simulate decay
         if (std.mem.startsWith(u8, line, "/mem decay ")) {
             const rest = line["/mem decay ".len..];
             const hours = std.fmt.parseInt(i64, rest, 10) catch {
@@ -154,7 +149,6 @@ pub fn main() !void {
             continue;
         }
 
-        // Command: advance simulated time
         if (std.mem.startsWith(u8, line, "/time advance ")) {
             const rest = line["/time advance ".len..];
             const hours = std.fmt.parseInt(i64, rest, 10) catch {
@@ -166,7 +160,6 @@ pub fn main() !void {
             continue;
         }
 
-        // Command: run idle check
         if (std.mem.eql(u8, line, "/idle run")) {
             const now_ms = store.nowMs();
             try IdleThinker.maybeRun(
@@ -181,7 +174,6 @@ pub fn main() !void {
             continue;
         }
 
-        // Command: tick idle (advance time + run)
         if (std.mem.startsWith(u8, line, "/idle tick ")) {
             const rest = line["/idle tick ".len..];
             const minutes = std.fmt.parseInt(i64, rest, 10) catch {
@@ -203,7 +195,6 @@ pub fn main() !void {
             continue;
         }
 
-        // Command: episode compaction
         if (std.mem.eql(u8, line, "/episode compact")) {
             store.decayMemory(policy, store.nowMs());
 
@@ -232,7 +223,7 @@ pub fn main() !void {
             );
             defer A.free(combined);
 
-            const id = try store.addMemoryGoverned(policy, .{
+            const id = try store.addMemoryGoverned(A, policy, .{
                 .kind = .note,
                 .subject = "episode",
                 .predicate = "summary",
@@ -251,7 +242,6 @@ pub fn main() !void {
             continue;
         }
 
-        // Phase 7: Injection guard + intent classification
         const guard = InjectionGuard.check(line);
         if (guard.is_attack) {
             cli.msg(
@@ -263,7 +253,6 @@ pub fn main() !void {
         const intent = Intent.classifyMemoryIntent(line);
         const allow_memory_ops = !guard.is_attack and (intent == .explicit_store);
 
-        // Normal user message - load context BEFORE inserting new message
         const identity = try store.loadIdentityCore(A);
         defer A.free(identity);
 
@@ -291,8 +280,7 @@ pub fn main() !void {
         const last_episode = store.latestActiveObjectByKey("episode", "summary");
         const last_thought = store.latestActiveObjectByKey("self", "thought");
 
-        // NOW insert the user message (after loading context)
-        try store.insertMessage(.user, line);
+        try store.insertMessage(A, .user, line);
 
         cli.msg(.dbg, "injecting {d} memory items", .{memory.len});
         cli.msg(.dbg, "injecting {d} recent messages", .{recent.len});
@@ -331,12 +319,10 @@ pub fn main() !void {
         );
         defer A.free(reply);
 
-        try store.insertMessage(.assistant, reply);
+        try store.insertMessage(A, .assistant, reply);
 
         cli.msg(.rok, "{s}", .{reply});
 
-        // --- Phase 4: Governor applies allowed proposals ---
-        // Reload recent to include current user message for reflection
         const recent_for_reflection = try store.loadRecentMessages(A, 24);
         defer A.free(recent_for_reflection);
 
@@ -361,7 +347,7 @@ pub fn main() !void {
 
         if (proposals.len != 0) {
             cli.msg(.hil, "[Governor evaluation]", .{});
-            try Governor.apply(&store, policy, proposals, cli);
+            try Governor.apply(A, &store, policy, proposals, cli);
         }
     }
 }

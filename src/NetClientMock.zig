@@ -2,8 +2,6 @@ const std = @import("std");
 const Types = @import("Types.zig");
 
 pub const NetClientMock = struct {
-    allocator: std.mem.Allocator,
-
     pub const Request = struct {
         messages: []const Types.Message,
         params: Types.ChatParams,
@@ -11,40 +9,50 @@ pub const NetClientMock = struct {
 
     pub const Response = struct {
         status: u16,
-        body: []u8, // allocator-owned
+        body: []u8,
     };
 
-    pub fn init(allocator: std.mem.Allocator) NetClientMock {
-        return .{ .allocator = allocator };
+    pub fn init() NetClientMock {
+        return .{};
     }
 
     pub fn deinit(self: *NetClientMock) void {
         _ = self;
     }
 
-    pub fn send(self: *NetClientMock, req: Request) !Response {
+    pub fn send(
+        self: *NetClientMock,
+        allocator: std.mem.Allocator,
+        req: Request,
+    ) !Response {
+        _ = self;
         _ = req.params;
 
-        // Episode compaction prompt → deterministic JSON
         if (req.messages.len > 0) {
-            if (std.mem.indexOf(u8, req.messages[0].content, "EPISODE_COMPACTION") != null) {
+            if (std.mem.indexOf(
+                u8,
+                req.messages[0].content,
+                "EPISODE_COMPACTION",
+            ) != null) {
                 const json =
                     \\{ "title": "Episode: governed memory", "summary": "User discussed building a remembering AI architecture with governed memory and constraints." }
                 ;
                 return .{
                     .status = 200,
-                    .body = try openAiWrappedContentEscaped(self.allocator, json),
+                    .body = try openAiWrappedContentEscaped(allocator, json),
                 };
             }
         }
 
-        // Reflection prompt → return deterministic JSON proposals
         if (req.messages.len > 0) {
-            if (std.mem.indexOf(u8, req.messages[0].content, "REFLECTION module") != null) {
+            if (std.mem.indexOf(
+                u8,
+                req.messages[0].content,
+                "REFLECTION module",
+            ) != null) {
                 const full = req.messages[0].content;
                 const last_user = lastUserLine(full);
 
-                // Only propose when user explicitly indicates memory intent in last message
                 const explicit =
                     (std.mem.indexOf(u8, last_user, "remember") != null) or
                     (std.mem.indexOf(u8, last_user, "Remember") != null) or
@@ -54,20 +62,27 @@ pub const NetClientMock = struct {
                     (std.mem.indexOf(u8, last_user, "save this") != null);
 
                 if (!explicit) {
-                    // Return empty proposal list
                     const empty_json = "{\"proposals\":[]}";
-                    return .{ .status = 200, .body = try openAiWrappedContentEscaped(self.allocator, empty_json) };
+                    return .{
+                        .status = 200,
+                        .body = try openAiWrappedContentEscaped(
+                            allocator,
+                            empty_json,
+                        ),
+                    };
                 }
 
                 const json =
                     \\{"proposals":[{"action":"add","kind":"note","subject":"user","predicate":"intent","object":"wants governed memory","confidence":0.6}]}
                 ;
 
-                return .{ .status = 200, .body = try openAiWrappedContentEscaped(self.allocator, json) };
+                return .{
+                    .status = 200,
+                    .body = try openAiWrappedContentEscaped(allocator, json),
+                };
             }
         }
 
-        // Idle monologue prompt -> deterministic thought JSON
         if (req.messages.len > 0) {
             const content = req.messages[0].content;
             if (std.mem.indexOf(u8, content, "IDLE_MONOLOGUE") != null) {
@@ -76,21 +91,24 @@ pub const NetClientMock = struct {
                 ;
                 return .{
                     .status = 200,
-                    .body = try openAiWrappedContentEscaped(self.allocator, json),
+                    .body = try openAiWrappedContentEscaped(allocator, json),
                 };
             }
         }
 
-        // Default behavior: Find the last user message and echo it.
         var last_user: []const u8 = "";
         for (req.messages) |m| {
             if (m.role == .user) last_user = m.content;
         }
 
-        const content = try std.fmt.allocPrint(self.allocator, "MOCK_REPLY: {s}", .{last_user});
-        defer self.allocator.free(content);
+        const content = try std.fmt.allocPrint(
+            allocator,
+            "MOCK_REPLY: {s}",
+            .{last_user},
+        );
+        defer allocator.free(content);
 
-        const wrapped = try openAiWrappedContent(self.allocator, content);
+        const wrapped = try openAiWrappedContent(allocator, content);
         return .{ .status = 200, .body = wrapped };
     }
 

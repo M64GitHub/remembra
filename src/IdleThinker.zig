@@ -1,5 +1,3 @@
-//! Idle thinker for generating inner monologue and auto chapter closing.
-
 const std = @import("std");
 const Types = @import("Types.zig");
 const Provider = @import("Provider.zig").Provider;
@@ -35,7 +33,7 @@ pub const IdleThinker = struct {
             const thought = try generateThought(allocator, provider, store, now_ms);
             defer allocator.free(thought);
 
-            _ = try store.addMemoryGoverned(policy, .{
+            _ = try store.addMemoryGoverned(allocator, policy, .{
                 .kind = .note,
                 .subject = "self",
                 .predicate = "thought",
@@ -73,7 +71,7 @@ pub const IdleThinker = struct {
                 );
                 defer allocator.free(combined);
 
-                _ = try store.addMemoryGoverned(policy, .{
+                _ = try store.addMemoryGoverned(allocator, policy, .{
                     .kind = .note,
                     .subject = "episode",
                     .predicate = "summary",
