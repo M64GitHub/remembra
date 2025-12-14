@@ -8,7 +8,6 @@ const MemoryStoreSqlite = @import("MemoryStoreSqlite.zig").MemoryStoreSqlite;
 const PromptBuilder = @import("PromptBuilder.zig").PromptBuilder;
 const Reflector = @import("Reflector.zig").Reflector;
 const Governor = @import("Governor.zig").Governor;
-const MemoryPolicy = @import("MemoryPolicy.zig").MemoryPolicy;
 const Cli = @import("Cli.zig").Cli;
 const EpisodeCompactor = @import("EpisodeCompactor.zig").EpisodeCompactor;
 const InjectionGuard = @import("InjectionGuard.zig");
@@ -16,10 +15,9 @@ const Intent = @import("Intent.zig");
 const IdleThinker = @import("IdleThinker.zig").IdleThinker;
 const Retrieval = @import("Retrieval.zig").Retrieval;
 
-const USE_SQLITE = true;
-const USE_OLLAMA = true;
-const OLLAMA_URL = "http://127.0.0.1:11434";
-const OLLAMA_MODEL = "llama3.2";
+const ConfigConn = @import("config/ConfigConnection.zig").ConfigConnection;
+const ConfigSys = @import("config/ConfigSystem.zig").ConfigSystem;
+const ConfigIdent = @import("config/ConfigIdentity.zig").ConfigIdentity;
 
 fn readLine(file: std.fs.File, buf: []u8) !?[]u8 {
     var i: usize = 0;
@@ -62,50 +60,54 @@ pub fn main() !void {
     defer _ = gpa.deinit();
     const allocator = gpa.allocator();
 
+    const conn = ConfigConn{};
+    const sys = ConfigSys{};
+    const ident = ConfigIdent{};
+
     var cli = try Cli.init(allocator);
     defer cli.deinit(allocator);
-    cli.app_prefix = "REMEMBRA";
-    cli.show_timestamp = false;
-    cli.debug_level = 1;
-    try cli.enableLogmode("REMEMBRA.log");
+    cli.app_prefix = sys.app_prefix;
+    cli.show_timestamp = sys.show_timestamp;
+    cli.debug_level = sys.debug_level;
+    try cli.enableLogmode(sys.log_file);
 
     cli.msg(.inf, "Starting up ...", .{});
 
-    const Provider = if (USE_OLLAMA) ProviderOllama else ProviderMock;
+    const Provider = if (conn.use_ollama) ProviderOllama else ProviderMock;
 
-    var provider = if (USE_OLLAMA)
-        try ProviderOllama.init(allocator, OLLAMA_URL, OLLAMA_MODEL)
+    var provider = if (conn.use_ollama)
+        try ProviderOllama.init(allocator, conn.ollama_url, conn.ollama_model)
     else
         ProviderMock.init();
-    defer if (USE_OLLAMA) provider.deinit(allocator) else provider.deinit();
+    defer if (conn.use_ollama) provider.deinit(allocator) else provider.deinit();
 
     _ = Provider;
 
-    const Store = if (USE_SQLITE) MemoryStoreSqlite else MemoryStoreMock;
+    const Store = if (conn.use_sqlite) MemoryStoreSqlite else MemoryStoreMock;
 
-    var store = if (USE_SQLITE)
-        try MemoryStoreSqlite.init("remembra.db")
+    var store = if (conn.use_sqlite)
+        try MemoryStoreSqlite.init(conn.database_path)
     else
         MemoryStoreMock.init(allocator);
-    defer if (USE_SQLITE) store.deinit() else store.deinit(allocator);
+    defer if (conn.use_sqlite) store.deinit() else store.deinit(allocator);
 
-    if (USE_SQLITE) {
+    if (conn.use_sqlite) {
         try store.ensureSchema();
-        cli.msg(.ok, "SQLite store: remembra.db", .{});
+        cli.msg(.ok, "SQLite store: {s}", .{conn.database_path});
     }
 
-    const policy = MemoryPolicy{};
+    const policy = ident.memory_policy;
     _ = Store;
 
     const stdin_file: std.fs.File = .{ .handle = std.posix.STDIN_FILENO };
 
-    cli.msg(.hil, "{s} {s}", .{ version.name, version.version });
-    if (USE_OLLAMA) {
-        cli.msg(.inf, "Ollama provider ({s}).", .{OLLAMA_MODEL});
+    cli.msg(.hil, "{s} {s}", .{ ident.name, version.version });
+    if (conn.use_ollama) {
+        cli.msg(.inf, "Ollama provider ({s}).", .{conn.ollama_model});
     } else {
         cli.msg(.inf, "Mock provider.", .{});
     }
-    if (USE_SQLITE) {
+    if (conn.use_sqlite) {
         cli.msg(
             .inf,
             "Commands: /db init/clear/stats, /mem add/ls/decay, " ++
@@ -134,19 +136,19 @@ pub fn main() !void {
 
         if (std.mem.eql(u8, line, "/quit")) break;
 
-        if (USE_SQLITE and std.mem.eql(u8, line, "/db init")) {
+        if (conn.use_sqlite and std.mem.eql(u8, line, "/db init")) {
             try store.ensureSchema();
             cli.msg(.ok, "Schema ensured.", .{});
             continue;
         }
 
-        if (USE_SQLITE and std.mem.eql(u8, line, "/db clear")) {
+        if (conn.use_sqlite and std.mem.eql(u8, line, "/db clear")) {
             try store.clearDb();
             cli.msg(.ok, "Database cleared.", .{});
             continue;
         }
 
-        if (USE_SQLITE and std.mem.eql(u8, line, "/db stats")) {
+        if (conn.use_sqlite and std.mem.eql(u8, line, "/db stats")) {
             const mc = store.countMessages() catch 0;
             const mm = store.countMemories() catch 0;
             const ma = store.countActiveMemories() catch 0;
@@ -161,7 +163,7 @@ pub fn main() !void {
         if (std.mem.eql(u8, line, "/mem ls")) {
             const all = try store.loadAllMemoryItems(allocator);
             defer {
-                if (USE_SQLITE) {
+                if (conn.use_sqlite) {
                     for (all) |m| {
                         allocator.free(@constCast(m.subject));
                         allocator.free(@constCast(m.predicate));
@@ -207,7 +209,7 @@ pub fn main() !void {
                 .subject = "user",
                 .predicate = "says",
                 .object = rest,
-                .confidence = 0.7,
+                .confidence = ident.confidence_user_notes,
                 .is_active = true,
             });
 
@@ -228,9 +230,9 @@ pub fn main() !void {
 
             cli.msg(.ok, "Decayed memory by ~{d} hours.", .{hours});
 
-            const mem = try store.loadMemoryItems(allocator, 50);
+            const mem = try store.loadMemoryItems(allocator, sys.max_history_display);
             defer {
-                if (USE_SQLITE) {
+                if (conn.use_sqlite) {
                     for (mem) |m| {
                         allocator.free(@constCast(m.subject));
                         allocator.free(@constCast(m.predicate));
@@ -259,9 +261,9 @@ pub fn main() !void {
         }
 
         if (std.mem.eql(u8, line, "/history")) {
-            const msgs = try store.loadRecentMessages(allocator, 50);
+            const msgs = try store.loadRecentMessages(allocator, sys.max_history_display);
             defer {
-                if (USE_SQLITE) {
+                if (conn.use_sqlite) {
                     for (msgs) |m| allocator.free(@constCast(m.content));
                 }
                 allocator.free(msgs);
@@ -273,7 +275,7 @@ pub fn main() !void {
         if (std.mem.eql(u8, line, "/history all")) {
             const msgs = try store.loadAllMessages(allocator);
             defer {
-                if (USE_SQLITE) {
+                if (conn.use_sqlite) {
                     for (msgs) |m| allocator.free(@constCast(m.content));
                 }
                 allocator.free(msgs);
@@ -291,7 +293,7 @@ pub fn main() !void {
             const since_ms = store.nowMs() - (hours * 60 * 60 * 1000);
             const msgs = try store.loadMessagesSince(allocator, since_ms);
             defer {
-                if (USE_SQLITE) {
+                if (conn.use_sqlite) {
                     for (msgs) |m| allocator.free(@constCast(m.content));
                 }
                 allocator.free(msgs);
@@ -308,8 +310,12 @@ pub fn main() !void {
                 &store,
                 policy,
                 cli,
-                .{},
+                sys.idle_params,
                 now_ms,
+                ident.llm_idle,
+                ident.llm_episode,
+                ident.confidence_idle_thoughts,
+                ident.confidence_episodes,
             );
             continue;
         }
@@ -328,8 +334,12 @@ pub fn main() !void {
                 &store,
                 policy,
                 cli,
-                .{},
+                sys.idle_params,
                 now_ms,
+                ident.llm_idle,
+                ident.llm_episode,
+                ident.confidence_idle_thoughts,
+                ident.confidence_episodes,
             );
             cli.msg(.ok, "Idle ticked by {d} minutes.", .{minutes});
             continue;
@@ -338,9 +348,12 @@ pub fn main() !void {
         if (std.mem.eql(u8, line, "/episode compact")) {
             store.decayMemory(policy, store.nowMs());
 
-            const ep_msgs = try store.loadMessagesSinceCutoff(allocator, 200);
+            const ep_msgs = try store.loadMessagesSinceCutoff(
+                allocator,
+                sys.max_episode_messages,
+            );
             defer {
-                if (USE_SQLITE) {
+                if (conn.use_sqlite) {
                     for (ep_msgs) |m| allocator.free(@constCast(m.content));
                 }
                 allocator.free(ep_msgs);
@@ -355,7 +368,12 @@ pub fn main() !void {
                 continue;
             }
 
-            const ep = try EpisodeCompactor.run(allocator, &provider, ep_msgs);
+            const ep = try EpisodeCompactor.run(
+                allocator,
+                &provider,
+                ep_msgs,
+                ident.llm_episode,
+            );
             defer {
                 allocator.free(ep.title);
                 allocator.free(ep.summary);
@@ -373,7 +391,7 @@ pub fn main() !void {
                 .subject = "episode",
                 .predicate = "summary",
                 .object = combined,
-                .confidence = 0.85,
+                .confidence = ident.confidence_episodes,
                 .is_active = true,
             });
 
@@ -398,9 +416,12 @@ pub fn main() !void {
         const intent = Intent.classifyMemoryIntent(line);
         const allow_memory_ops = !guard.is_attack and (intent == .explicit_store);
 
-        const identity = try store.loadIdentityCore(allocator);
+        const identity = try store.loadIdentityCoreWithDefaults(allocator, .{
+            .tone = ident.default_tone,
+            .memory_contract = ident.default_memory_contract,
+        });
         defer {
-            if (USE_SQLITE) {
+            if (conn.use_sqlite) {
                 for (identity) |e| {
                     allocator.free(@constCast(e.key));
                     allocator.free(@constCast(e.value));
@@ -418,13 +439,20 @@ pub fn main() !void {
             &store,
             policy,
             cli,
-            .{},
+            sys.idle_params,
             now_ms,
+            ident.llm_idle,
+            ident.llm_episode,
+            ident.confidence_idle_thoughts,
+            ident.confidence_episodes,
         );
 
-        const candidates = try store.loadMemoryCandidates(allocator, 200);
+        const candidates = try store.loadMemoryCandidates(
+            allocator,
+            sys.max_memory_candidates,
+        );
         defer {
-            if (USE_SQLITE) {
+            if (conn.use_sqlite) {
                 for (candidates) |m| {
                     allocator.free(@constCast(m.subject));
                     allocator.free(@constCast(m.predicate));
@@ -439,7 +467,7 @@ pub fn main() !void {
             candidates,
             line,
             now_ms,
-            .{},
+            sys.retrieval_params,
         );
         defer allocator.free(selected_idxs);
 
@@ -449,9 +477,12 @@ pub fn main() !void {
             memory[j] = candidates[idx];
         }
 
-        const recent = try store.loadRecentMessages(allocator, 24);
+        const recent = try store.loadRecentMessages(
+            allocator,
+            sys.max_recent_messages_llm,
+        );
         defer {
-            if (USE_SQLITE) {
+            if (conn.use_sqlite) {
                 for (recent) |m| allocator.free(@constCast(m.content));
             }
             allocator.free(recent);
@@ -477,6 +508,7 @@ pub fn main() !void {
             last_user_ms,
             last_episode,
             last_thought,
+            ident.name,
         );
         defer {
             if (model_msgs.len != 0 and model_msgs[0].role == .system) {
@@ -494,22 +526,24 @@ pub fn main() !void {
             });
         }
 
-        const reply = try provider.chat(
-            allocator,
-            model_msgs,
-            .{ .model = "mock", .temperature = 0.7, .max_tokens = 256 },
-        );
+        const reply = try provider.chat(allocator, model_msgs, .{
+            .model = conn.ollama_model,
+            .temperature = ident.llm_chat.temperature,
+            .max_tokens = ident.llm_chat.max_tokens,
+        });
         defer allocator.free(reply);
 
         try store.insertMessage(allocator, .assistant, reply);
 
         cli.msg(.rok, "{s}", .{reply});
 
-        const recent_for_reflection =
-            try store.loadRecentMessages(allocator, 24);
+        const recent_for_reflection = try store.loadRecentMessages(
+            allocator,
+            sys.max_recent_messages_llm,
+        );
 
         defer {
-            if (USE_SQLITE) {
+            if (conn.use_sqlite) {
                 for (recent_for_reflection) |m| {
                     allocator.free(@constCast(m.content));
                 }
@@ -517,9 +551,7 @@ pub fn main() !void {
             allocator.free(recent_for_reflection);
         }
 
-        // Reflector uses only last 6 messages (excluding new
-        // assistant reply), while main LLM uses all 24
-        const max_context_msgs: usize = 6;
+        const max_context_msgs = sys.max_context_msgs_reflector;
         const total_loaded = recent_for_reflection.len;
 
         const start_idx = if (total_loaded > max_context_msgs + 1)
@@ -544,6 +576,7 @@ pub fn main() !void {
             reply,
             allow_memory_ops,
             cli,
+            ident.llm_reflection,
         );
         defer {
             for (proposals) |p| {
@@ -557,7 +590,10 @@ pub fn main() !void {
         if (proposals.len != 0) {
             if (allow_memory_ops) {
                 cli.msg(.hil, "[Governor evaluation]", .{});
-                try Governor.apply(allocator, &store, policy, proposals, cli);
+                try Governor.apply(allocator, &store, policy, proposals, cli, .{
+                    .rate_limit_ms = sys.rate_limit_ms,
+                    .confidence_min = ident.confidence_min_governor,
+                });
             } else {
                 cli.msg(
                     .dbg,

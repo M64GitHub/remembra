@@ -2,6 +2,7 @@ const std = @import("std");
 const Types = @import("Types.zig");
 const Cli = @import("Cli.zig").Cli;
 const JsonUtils = @import("JsonUtils.zig");
+const LlmParams = @import("config/ConfigIdentity.zig").LlmParams;
 
 pub const ReflectionProposal = struct {
     action: Action,
@@ -28,6 +29,7 @@ pub const Reflector = struct {
         assistant_reply: []const u8,
         allow_memory_ops: bool,
         cli: *Cli,
+        llm_params: LlmParams,
     ) ![]ReflectionProposal {
         const prompt = try buildReflectionPrompt(
             allocator,
@@ -52,8 +54,8 @@ pub const Reflector = struct {
 
         const response = try provider.chat(allocator, msgs, .{
             .model = "mock-reflection",
-            .temperature = 0.2,
-            .max_tokens = 512,
+            .temperature = llm_params.temperature,
+            .max_tokens = llm_params.max_tokens,
         });
         defer allocator.free(response);
 

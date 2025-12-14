@@ -6,6 +6,7 @@ const Temporal = @import("Temporal.zig").Temporal;
 const Cli = @import("Cli.zig").Cli;
 const MemoryStoreSqlite = @import("MemoryStoreSqlite.zig").MemoryStoreSqlite;
 const JsonUtils = @import("JsonUtils.zig");
+const LlmParams = @import("config/ConfigIdentity.zig").LlmParams;
 
 pub const IdleThinker = struct {
     pub const Params = struct {
@@ -22,6 +23,10 @@ pub const IdleThinker = struct {
         cli: *Cli,
         params: Params,
         now_ms: i64,
+        llm_idle: LlmParams,
+        llm_episode: LlmParams,
+        conf_idle: f32,
+        conf_episode: f32,
     ) !void {
         const last_user = store.getLastUserMsgMs();
         const gap = Temporal.gapMs(now_ms, last_user);
@@ -35,6 +40,7 @@ pub const IdleThinker = struct {
                 provider,
                 store,
                 now_ms,
+                llm_idle,
             );
             defer allocator.free(thought);
 
@@ -43,7 +49,7 @@ pub const IdleThinker = struct {
                 .subject = "self",
                 .predicate = "thought",
                 .object = thought,
-                .confidence = 0.55,
+                .confidence = conf_idle,
                 .is_active = true,
             });
 
@@ -73,6 +79,7 @@ pub const IdleThinker = struct {
                     allocator,
                     provider,
                     ep_msgs,
+                    llm_episode,
                 );
                 defer {
                     allocator.free(ep.title);
@@ -91,7 +98,7 @@ pub const IdleThinker = struct {
                     .subject = "episode",
                     .predicate = "summary",
                     .object = combined,
-                    .confidence = 0.85,
+                    .confidence = conf_episode,
                     .is_active = true,
                 });
 
@@ -120,6 +127,7 @@ pub const IdleThinker = struct {
         provider: anytype,
         store: anytype,
         now_ms: i64,
+        llm_params: LlmParams,
     ) ![]u8 {
         const prompt = try buildThoughtPrompt(allocator, store, now_ms);
         defer allocator.free(prompt);
@@ -135,8 +143,8 @@ pub const IdleThinker = struct {
 
         const response = try provider.chat(allocator, msgs, .{
             .model = "mock-idle",
-            .temperature = 0.4,
-            .max_tokens = 160,
+            .temperature = llm_params.temperature,
+            .max_tokens = llm_params.max_tokens,
         });
         defer allocator.free(response);
 

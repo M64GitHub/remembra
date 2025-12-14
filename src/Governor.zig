@@ -5,6 +5,11 @@ const MemoryPolicy = @import("MemoryPolicy.zig").MemoryPolicy;
 const Cli = @import("Cli.zig").Cli;
 
 pub const Governor = struct {
+    pub const Params = struct {
+        rate_limit_ms: i64 = 30_000,
+        confidence_min: f32 = 0.6,
+    };
+
     const ValidationError = error{
         ActionMustBeAdd,
         ConfidenceTooLow,
@@ -18,11 +23,12 @@ pub const Governor = struct {
         policy: MemoryPolicy,
         proposals: []const ReflectionProposal,
         cli: *Cli,
+        params: Params,
     ) !void {
         const now = std.time.milliTimestamp();
 
         for (proposals) |p| {
-            validateProposal(p) catch |err| {
+            validateProposal(p, params.confidence_min) catch |err| {
                 cli.msg(.wrn, "[Governor] rejected: {s}.{s}={s} ({s})", .{
                     p.subject,
                     p.predicate,
@@ -38,14 +44,14 @@ pub const Governor = struct {
                 p.predicate,
             );
             if (last_time) |t| {
-                if (now - t < 30_000) {
+                if (now - t < params.rate_limit_ms) {
                     cli.msg(
                         .wrn,
                         "[Governor] rate-limited key {s}.{s} (wait {d}s)",
                         .{
                             p.subject,
                             p.predicate,
-                            @divFloor(30_000 - (now - t), 1000),
+                            @divFloor(params.rate_limit_ms - (now - t), 1000),
                         },
                     );
                     continue;
@@ -75,9 +81,9 @@ pub const Governor = struct {
         }
     }
 
-    fn validateProposal(p: ReflectionProposal) ValidationError!void {
+    fn validateProposal(p: ReflectionProposal, min_conf: f32) ValidationError!void {
         if (p.action != .add) return error.ActionMustBeAdd;
-        if (p.confidence < 0.6) return error.ConfidenceTooLow;
+        if (p.confidence < min_conf) return error.ConfidenceTooLow;
 
         const valid_kind = (p.kind == .note) or
             (p.kind == .fact) or

@@ -13,6 +13,7 @@ pub const PromptBuilder = struct {
         last_user_ms: i64,
         last_episode_summary: ?[]const u8,
         last_idle_thought: ?[]const u8,
+        ai_name: []const u8,
     ) ![]Types.Message {
         var msgs: std.ArrayList(Types.Message) = .empty;
         errdefer msgs.deinit(allocator);
@@ -25,6 +26,7 @@ pub const PromptBuilder = struct {
             last_user_ms,
             last_episode_summary,
             last_idle_thought,
+            ai_name,
         );
         errdefer allocator.free(system_spine);
 
@@ -53,18 +55,19 @@ pub const PromptBuilder = struct {
         last_user_ms: i64,
         last_episode_summary: ?[]const u8,
         last_idle_thought: ?[]const u8,
+        ai_name: []const u8,
     ) ![]u8 {
         var out: std.ArrayList(u8) = .empty;
         errdefer out.deinit(allocator);
 
+        try out.writer(allocator).print("You are {s}.\n", .{ai_name});
         try out.appendSlice(allocator,
-            \\You are REMEMBRA.
             \\You are a stateless reasoning model wrapped by a system that governs memory.
             \\
             \\HARD RULES:
             \\- Memory below is READ-ONLY context.
             \\- Do not claim you updated memory. NEVER! This is done by the Reflection Module. You can say you try to remember, not more.
-            \\- You will see memory updated later. 
+            \\- You will see memory updated later.
             \\- The Module can not write memory unless the user explicitly asks.
             \\- If you reference an existing memory item, cite it as [mem#ID].
             \\
