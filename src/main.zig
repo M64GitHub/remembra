@@ -3,6 +3,7 @@ const version = @import("version.zig");
 const Types = @import("Types.zig");
 const Provider = @import("Provider.zig").Provider;
 const MemoryStoreMock = @import("MemoryStoreMock.zig").MemoryStoreMock;
+const MemoryStoreSqlite = @import("MemoryStoreSqlite.zig").MemoryStoreSqlite;
 const PromptBuilder = @import("PromptBuilder.zig").PromptBuilder;
 const Reflector = @import("Reflector.zig").Reflector;
 const Governor = @import("Governor.zig").Governor;
@@ -12,6 +13,8 @@ const EpisodeCompactor = @import("EpisodeCompactor.zig").EpisodeCompactor;
 const InjectionGuard = @import("InjectionGuard.zig");
 const Intent = @import("Intent.zig");
 const IdleThinker = @import("IdleThinker.zig").IdleThinker;
+
+const USE_SQLITE = true;
 
 fn readLine(file: std.fs.File, buf: []u8) !?[]u8 {
     var i: usize = 0;
@@ -37,10 +40,10 @@ fn readLine(file: std.fs.File, buf: []u8) !?[]u8 {
 pub fn main() !void {
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
     defer _ = gpa.deinit();
-    const A = gpa.allocator();
+    const allocator = gpa.allocator();
 
-    var cli = try Cli.init(A);
-    defer cli.deinit(A);
+    var cli = try Cli.init(allocator);
+    defer cli.deinit(allocator);
     cli.app_prefix = "REMEMBRA";
     cli.show_timestamp = false;
     cli.debug_level = 1;
@@ -51,20 +54,41 @@ pub fn main() !void {
     var provider = Provider.init();
     defer provider.deinit();
 
-    var store = MemoryStoreMock.init(A);
-    defer store.deinit(A);
+    const Store = if (USE_SQLITE) MemoryStoreSqlite else MemoryStoreMock;
+
+    var store = if (USE_SQLITE)
+        try MemoryStoreSqlite.init("remembra.db")
+    else
+        MemoryStoreMock.init(allocator);
+    defer if (USE_SQLITE) store.deinit() else store.deinit(allocator);
+
+    if (USE_SQLITE) {
+        try store.ensureSchema();
+        cli.msg(.ok, "SQLite store: remembra.db", .{});
+    }
 
     const policy = MemoryPolicy{};
+    _ = Store;
 
     const stdin_file: std.fs.File = .{ .handle = std.posix.STDIN_FILENO };
 
     cli.msg(.hil, "{s} {s}", .{ version.name, version.version });
-    cli.msg(.inf, "Phase 10: Re-entry context composer.", .{});
-    cli.msg(
-        .inf,
-        "Commands: /mem add/ls/decay, /episode compact, /time advance, /idle run/tick, /quit",
-        .{},
-    );
+    cli.msg(.inf, "Phase 11: SQLite persistence.", .{});
+    if (USE_SQLITE) {
+        cli.msg(
+            .inf,
+            "Commands: /db init/clear/stats, /mem add/ls/decay, " ++
+                "/episode compact, /time advance, /idle run/tick, /quit",
+            .{},
+        );
+    } else {
+        cli.msg(
+            .inf,
+            "Commands: /mem add/ls/decay, /episode compact, " ++
+                "/time advance, /idle run/tick, /quit",
+            .{},
+        );
+    }
 
     while (true) {
         cli.prompt("You: ", .{});
@@ -78,9 +102,42 @@ pub fn main() !void {
 
         if (std.mem.eql(u8, line, "/quit")) break;
 
+        if (USE_SQLITE and std.mem.eql(u8, line, "/db init")) {
+            try store.ensureSchema();
+            cli.msg(.ok, "Schema ensured.", .{});
+            continue;
+        }
+
+        if (USE_SQLITE and std.mem.eql(u8, line, "/db clear")) {
+            try store.clearDb();
+            cli.msg(.ok, "Database cleared.", .{});
+            continue;
+        }
+
+        if (USE_SQLITE and std.mem.eql(u8, line, "/db stats")) {
+            const mc = store.countMessages() catch 0;
+            const mm = store.countMemories() catch 0;
+            const ma = store.countActiveMemories() catch 0;
+            cli.msg(
+                .inf,
+                "messages={d} memories={d} active={d}",
+                .{ mc, mm, ma },
+            );
+            continue;
+        }
+
         if (std.mem.eql(u8, line, "/mem ls")) {
-            const all = try store.loadAllMemoryItems(A);
-            defer A.free(all);
+            const all = try store.loadAllMemoryItems(allocator);
+            defer {
+                if (USE_SQLITE) {
+                    for (all) |m| {
+                        allocator.free(@constCast(m.subject));
+                        allocator.free(@constCast(m.predicate));
+                        allocator.free(@constCast(m.object));
+                    }
+                }
+                allocator.free(all);
+            }
 
             if (all.len == 0) {
                 cli.msg(.inf, "Memory: (empty)", .{});
@@ -113,7 +170,7 @@ pub fn main() !void {
                 continue;
             }
 
-            const id = try store.addMemoryGoverned(A, policy, .{
+            const id = try store.addMemoryGoverned(allocator, policy, .{
                 .kind = .note,
                 .subject = "user",
                 .predicate = "says",
@@ -139,8 +196,17 @@ pub fn main() !void {
 
             cli.msg(.ok, "Decayed memory by ~{d} hours.", .{hours});
 
-            const mem = try store.loadMemoryItems(A, 50);
-            defer A.free(mem);
+            const mem = try store.loadMemoryItems(allocator, 50);
+            defer {
+                if (USE_SQLITE) {
+                    for (mem) |m| {
+                        allocator.free(@constCast(m.subject));
+                        allocator.free(@constCast(m.predicate));
+                        allocator.free(@constCast(m.object));
+                    }
+                }
+                allocator.free(mem);
+            }
             for (mem) |m| {
                 cli.msg(.st2, "- [mem#{d}] {s}.{s}={s} (conf {d:.2})", .{
                     m.id, m.subject, m.predicate, m.object, m.confidence,
@@ -163,7 +229,7 @@ pub fn main() !void {
         if (std.mem.eql(u8, line, "/idle run")) {
             const now_ms = store.nowMs();
             try IdleThinker.maybeRun(
-                A,
+                allocator,
                 &provider,
                 &store,
                 policy,
@@ -183,7 +249,7 @@ pub fn main() !void {
             store.advanceTimeMinutes(minutes);
             const now_ms = store.nowMs();
             try IdleThinker.maybeRun(
-                A,
+                allocator,
                 &provider,
                 &store,
                 policy,
@@ -198,8 +264,13 @@ pub fn main() !void {
         if (std.mem.eql(u8, line, "/episode compact")) {
             store.decayMemory(policy, store.nowMs());
 
-            const ep_msgs = try store.loadMessagesSinceCutoff(A, 200);
-            defer A.free(ep_msgs);
+            const ep_msgs = try store.loadMessagesSinceCutoff(allocator, 200);
+            defer {
+                if (USE_SQLITE) {
+                    for (ep_msgs) |m| allocator.free(@constCast(m.content));
+                }
+                allocator.free(ep_msgs);
+            }
 
             if (ep_msgs.len == 0) {
                 cli.msg(
@@ -210,20 +281,20 @@ pub fn main() !void {
                 continue;
             }
 
-            const ep = try EpisodeCompactor.run(A, &provider, ep_msgs);
+            const ep = try EpisodeCompactor.run(allocator, &provider, ep_msgs);
             defer {
-                A.free(ep.title);
-                A.free(ep.summary);
+                allocator.free(ep.title);
+                allocator.free(ep.summary);
             }
 
             const combined = try std.fmt.allocPrint(
-                A,
+                allocator,
                 "{s}\n{s}",
                 .{ ep.title, ep.summary },
             );
-            defer A.free(combined);
+            defer allocator.free(combined);
 
-            const id = try store.addMemoryGoverned(A, policy, .{
+            const id = try store.addMemoryGoverned(allocator, policy, .{
                 .kind = .note,
                 .subject = "episode",
                 .predicate = "summary",
@@ -253,14 +324,22 @@ pub fn main() !void {
         const intent = Intent.classifyMemoryIntent(line);
         const allow_memory_ops = !guard.is_attack and (intent == .explicit_store);
 
-        const identity = try store.loadIdentityCore(A);
-        defer A.free(identity);
+        const identity = try store.loadIdentityCore(allocator);
+        defer {
+            if (USE_SQLITE) {
+                for (identity) |e| {
+                    allocator.free(@constCast(e.key));
+                    allocator.free(@constCast(e.value));
+                }
+            }
+            allocator.free(identity);
+        }
 
         const now_ms = store.nowMs();
         store.decayMemory(policy, now_ms);
 
         try IdleThinker.maybeRun(
-            A,
+            allocator,
             &provider,
             &store,
             policy,
@@ -269,24 +348,38 @@ pub fn main() !void {
             now_ms,
         );
 
-        const memory = try store.loadMemoryItems(A, 20);
-        defer A.free(memory);
+        const memory = try store.loadMemoryItems(allocator, 20);
+        defer {
+            if (USE_SQLITE) {
+                for (memory) |m| {
+                    allocator.free(@constCast(m.subject));
+                    allocator.free(@constCast(m.predicate));
+                    allocator.free(@constCast(m.object));
+                }
+            }
+            allocator.free(memory);
+        }
 
-        const recent = try store.loadRecentMessages(A, 24);
-        defer A.free(recent);
+        const recent = try store.loadRecentMessages(allocator, 24);
+        defer {
+            if (USE_SQLITE) {
+                for (recent) |m| allocator.free(@constCast(m.content));
+            }
+            allocator.free(recent);
+        }
 
         const last_user_ms = store.getLastUserMsgMs();
 
         const last_episode = store.latestActiveObjectByKey("episode", "summary");
         const last_thought = store.latestActiveObjectByKey("self", "thought");
 
-        try store.insertMessage(A, .user, line);
+        try store.insertMessage(allocator, .user, line);
 
         cli.msg(.dbg, "injecting {d} memory items", .{memory.len});
         cli.msg(.dbg, "injecting {d} recent messages", .{recent.len});
 
         const model_msgs = try PromptBuilder.build(
-            A,
+            allocator,
             identity,
             memory,
             recent,
@@ -298,9 +391,9 @@ pub fn main() !void {
         );
         defer {
             if (model_msgs.len != 0 and model_msgs[0].role == .system) {
-                A.free(@constCast(model_msgs[0].content));
+                allocator.free(@constCast(model_msgs[0].content));
             }
-            A.free(model_msgs);
+            allocator.free(model_msgs);
         }
 
         cli.msg(.dbg, "prompt total messages: {d}", .{model_msgs.len});
@@ -313,21 +406,26 @@ pub fn main() !void {
         }
 
         const reply = try provider.chat(
-            A,
+            allocator,
             model_msgs,
             .{ .model = "mock", .temperature = 0.7, .max_tokens = 256 },
         );
-        defer A.free(reply);
+        defer allocator.free(reply);
 
-        try store.insertMessage(A, .assistant, reply);
+        try store.insertMessage(allocator, .assistant, reply);
 
         cli.msg(.rok, "{s}", .{reply});
 
-        const recent_for_reflection = try store.loadRecentMessages(A, 24);
-        defer A.free(recent_for_reflection);
+        const recent_for_reflection = try store.loadRecentMessages(allocator, 24);
+        defer {
+            if (USE_SQLITE) {
+                for (recent_for_reflection) |m| allocator.free(@constCast(m.content));
+            }
+            allocator.free(recent_for_reflection);
+        }
 
         const proposals = try Reflector.run(
-            A,
+            allocator,
             &provider,
             identity,
             memory,
@@ -338,16 +436,16 @@ pub fn main() !void {
         );
         defer {
             for (proposals) |p| {
-                A.free(@constCast(p.subject));
-                A.free(@constCast(p.predicate));
-                A.free(@constCast(p.object));
+                allocator.free(@constCast(p.subject));
+                allocator.free(@constCast(p.predicate));
+                allocator.free(@constCast(p.object));
             }
-            A.free(proposals);
+            allocator.free(proposals);
         }
 
         if (proposals.len != 0) {
             cli.msg(.hil, "[Governor evaluation]", .{});
-            try Governor.apply(A, &store, policy, proposals, cli);
+            try Governor.apply(allocator, &store, policy, proposals, cli);
         }
     }
 }

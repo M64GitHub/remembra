@@ -1,11 +1,11 @@
 const std = @import("std");
 const Types = @import("Types.zig");
 const Provider = @import("Provider.zig").Provider;
-const MemoryStoreMock = @import("MemoryStoreMock.zig").MemoryStoreMock;
 const MemoryPolicy = @import("MemoryPolicy.zig").MemoryPolicy;
 const EpisodeCompactor = @import("EpisodeCompactor.zig").EpisodeCompactor;
 const Temporal = @import("Temporal.zig").Temporal;
 const Cli = @import("Cli.zig").Cli;
+const MemoryStoreSqlite = @import("MemoryStoreSqlite.zig").MemoryStoreSqlite;
 
 pub const IdleThinker = struct {
     pub const Params = struct {
@@ -17,7 +17,7 @@ pub const IdleThinker = struct {
     pub fn maybeRun(
         allocator: std.mem.Allocator,
         provider: *Provider,
-        store: *MemoryStoreMock,
+        store: anytype,
         policy: MemoryPolicy,
         cli: *Cli,
         params: Params,
@@ -30,7 +30,12 @@ pub const IdleThinker = struct {
 
         const last_think = store.getLastIdleThinkMs();
         if (shouldThink(now_ms, last_think, params.min_ms_between_thoughts)) {
-            const thought = try generateThought(allocator, provider, store, now_ms);
+            const thought = try generateThought(
+                allocator,
+                provider,
+                store,
+                now_ms,
+            );
             defer allocator.free(thought);
 
             _ = try store.addMemoryGoverned(allocator, policy, .{
@@ -55,10 +60,20 @@ pub const IdleThinker = struct {
             );
 
             const ep_msgs = try store.loadMessagesSinceCutoff(allocator, 400);
-            defer allocator.free(ep_msgs);
+            defer {
+                const StoreType = @TypeOf(store.*);
+                if (StoreType == MemoryStoreSqlite) {
+                    for (ep_msgs) |m| allocator.free(@constCast(m.content));
+                }
+                allocator.free(ep_msgs);
+            }
 
             if (ep_msgs.len != 0) {
-                const ep = try EpisodeCompactor.run(allocator, provider, ep_msgs);
+                const ep = try EpisodeCompactor.run(
+                    allocator,
+                    provider,
+                    ep_msgs,
+                );
                 defer {
                     allocator.free(ep.title);
                     allocator.free(ep.summary);
@@ -90,7 +105,11 @@ pub const IdleThinker = struct {
         }
     }
 
-    pub fn shouldThink(now_ms: i64, last_think_ms: i64, min_between_ms: i64) bool {
+    pub fn shouldThink(
+        now_ms: i64,
+        last_think_ms: i64,
+        min_between_ms: i64,
+    ) bool {
         if (last_think_ms <= 0) return true;
         const d = now_ms - last_think_ms;
         return d >= min_between_ms;
@@ -99,7 +118,7 @@ pub const IdleThinker = struct {
     fn generateThought(
         allocator: std.mem.Allocator,
         provider: *Provider,
-        store: *MemoryStoreMock,
+        store: anytype,
         now_ms: i64,
     ) ![]u8 {
         const prompt = try buildThoughtPrompt(allocator, store, now_ms);
@@ -121,7 +140,7 @@ pub const IdleThinker = struct {
 
     fn buildThoughtPrompt(
         allocator: std.mem.Allocator,
-        store: *MemoryStoreMock,
+        store: anytype,
         now_ms: i64,
     ) ![]u8 {
         var out: std.ArrayList(u8) = .empty;
@@ -137,7 +156,13 @@ pub const IdleThinker = struct {
         );
 
         const recent = try store.loadRecentMessages(allocator, 6);
-        defer allocator.free(recent);
+        defer {
+            const StoreType = @TypeOf(store.*);
+            if (StoreType == MemoryStoreSqlite) {
+                for (recent) |m| allocator.free(@constCast(m.content));
+            }
+            allocator.free(recent);
+        }
 
         try out.writer(allocator).print("now_ms={d}\nrecent:\n", .{now_ms});
         for (recent) |m| {

@@ -1,0 +1,695 @@
+//! SQLite-backed memory store for REMEMBRA persistence.
+
+const std = @import("std");
+const Types = @import("Types.zig");
+const MemoryPolicy = @import("MemoryPolicy.zig").MemoryPolicy;
+const sqlite = @import("sqlite.zig");
+const c = sqlite.c;
+
+pub const SCHEMA =
+    \\PRAGMA journal_mode=WAL;
+    \\PRAGMA synchronous=NORMAL;
+    \\
+    \\CREATE TABLE IF NOT EXISTS meta (
+    \\    key   TEXT PRIMARY KEY,
+    \\    value TEXT NOT NULL
+    \\);
+    \\
+    \\CREATE TABLE IF NOT EXISTS messages (
+    \\    id            INTEGER PRIMARY KEY AUTOINCREMENT,
+    \\    role          INTEGER NOT NULL,
+    \\    content       TEXT NOT NULL,
+    \\    created_at_ms INTEGER NOT NULL
+    \\);
+    \\
+    \\CREATE TABLE IF NOT EXISTS memory_items (
+    \\    id            INTEGER PRIMARY KEY AUTOINCREMENT,
+    \\    kind          INTEGER NOT NULL,
+    \\    subject       TEXT NOT NULL,
+    \\    predicate     TEXT NOT NULL,
+    \\    object        TEXT NOT NULL,
+    \\    confidence    REAL NOT NULL,
+    \\    is_active     INTEGER NOT NULL,
+    \\    created_at_ms INTEGER NOT NULL,
+    \\    updated_at_ms INTEGER NOT NULL
+    \\);
+    \\
+    \\CREATE TABLE IF NOT EXISTS identity_entries (
+    \\    id            INTEGER PRIMARY KEY AUTOINCREMENT,
+    \\    key           TEXT NOT NULL UNIQUE,
+    \\    value         TEXT NOT NULL,
+    \\    created_at_ms INTEGER NOT NULL
+    \\);
+    \\
+    \\CREATE INDEX IF NOT EXISTS idx_messages_created
+    \\    ON messages(created_at_ms);
+    \\CREATE INDEX IF NOT EXISTS idx_mem_active
+    \\    ON memory_items(is_active, subject, predicate);
+    \\CREATE INDEX IF NOT EXISTS idx_mem_updated
+    \\    ON memory_items(updated_at_ms);
+;
+
+pub const MemoryStoreSqlite = struct {
+    db: sqlite.SqliteDb,
+    obj_buf: [4096]u8 = undefined,
+    obj_len: usize = 0,
+
+    pub fn init(path: [*:0]const u8) !MemoryStoreSqlite {
+        const db = try sqlite.SqliteDb.open(path);
+        return .{ .db = db };
+    }
+
+    pub fn deinit(self: *MemoryStoreSqlite) void {
+        self.db.close();
+    }
+
+    pub fn ensureSchema(self: *MemoryStoreSqlite) !void {
+        try self.db.exec(SCHEMA);
+        try self.setMetaDefault("episode_cutoff_index", "0");
+        try self.setMetaDefault("time_offset_ms", "0");
+        try self.setMetaDefault("last_user_msg_ms", "0");
+        try self.setMetaDefault("last_idle_think_ms", "0");
+    }
+
+    pub fn clearDb(self: *MemoryStoreSqlite) !void {
+        try self.db.exec(
+            \\DELETE FROM messages;
+            \\DELETE FROM memory_items;
+            \\DELETE FROM identity_entries;
+            \\DELETE FROM meta;
+        );
+        try self.ensureSchema();
+    }
+
+    pub fn nowMs(self: *MemoryStoreSqlite) i64 {
+        const real = std.time.milliTimestamp();
+        const off = self.getMetaI64("time_offset_ms") catch 0;
+        return real + off;
+    }
+
+    pub fn advanceTimeHours(self: *MemoryStoreSqlite, hours: i64) void {
+        const add = hours * 60 * 60 * 1000;
+        const cur = self.getMetaI64("time_offset_ms") catch 0;
+        self.setMetaI64("time_offset_ms", cur + add) catch {};
+    }
+
+    pub fn advanceTimeMinutes(self: *MemoryStoreSqlite, minutes: i64) void {
+        const add = minutes * 60 * 1000;
+        const cur = self.getMetaI64("time_offset_ms") catch 0;
+        self.setMetaI64("time_offset_ms", cur + add) catch {};
+    }
+
+    pub fn getLastUserMsgMs(self: *MemoryStoreSqlite) i64 {
+        return self.getMetaI64("last_user_msg_ms") catch 0;
+    }
+
+    pub fn getLastIdleThinkMs(self: *MemoryStoreSqlite) i64 {
+        return self.getMetaI64("last_idle_think_ms") catch 0;
+    }
+
+    pub fn setLastIdleThinkMs(self: *MemoryStoreSqlite, ms: i64) void {
+        self.setMetaI64("last_idle_think_ms", ms) catch {};
+    }
+
+    pub fn insertMessage(
+        self: *MemoryStoreSqlite,
+        allocator: std.mem.Allocator,
+        role: Types.Role,
+        content: []const u8,
+    ) !void {
+        _ = allocator;
+        const now = self.nowMs();
+
+        const stmt = try self.db.prepare(
+            "INSERT INTO messages(role, content, created_at_ms) " ++
+                "VALUES(?, ?, ?);",
+        );
+        defer sqlite.finalize(stmt);
+
+        sqlite.bindInt(stmt, 1, @intFromEnum(role));
+        sqlite.bindText(stmt, 2, content);
+        sqlite.bindInt64(stmt, 3, now);
+
+        if (sqlite.step(stmt) != c.SQLITE_DONE) {
+            return error.SqliteStepFailed;
+        }
+
+        if (role == .user) {
+            try self.setMetaI64("last_user_msg_ms", now);
+        }
+    }
+
+    pub fn loadRecentMessages(
+        self: *MemoryStoreSqlite,
+        allocator: std.mem.Allocator,
+        max_count: usize,
+    ) ![]Types.Message {
+        const stmt = try self.db.prepare(
+            "SELECT role, content, created_at_ms FROM messages " ++
+                "ORDER BY id DESC LIMIT ?;",
+        );
+        defer sqlite.finalize(stmt);
+
+        sqlite.bindInt(stmt, 1, @intCast(max_count));
+
+        var tmp: std.ArrayList(Types.Message) = .empty;
+        errdefer {
+            for (tmp.items) |m| allocator.free(@constCast(m.content));
+            tmp.deinit(allocator);
+        }
+
+        while (sqlite.step(stmt) == c.SQLITE_ROW) {
+            const role_i = sqlite.columnInt(stmt, 0);
+            const txt = sqlite.columnText(stmt, 1);
+            const created = sqlite.columnInt64(stmt, 2);
+
+            try tmp.append(allocator, .{
+                .role = @enumFromInt(role_i),
+                .content = try allocator.dupe(u8, txt),
+                .created_at_ms = created,
+            });
+        }
+
+        std.mem.reverse(Types.Message, tmp.items);
+        return try tmp.toOwnedSlice(allocator);
+    }
+
+    pub fn countMessagesSinceCutoff(self: *MemoryStoreSqlite) usize {
+        const total = self.countMessages() catch 0;
+        const cutoff = self.getEpisodeCutoffIndex();
+        if (cutoff > total) return 0;
+        return total - cutoff;
+    }
+
+    pub fn loadMessagesSinceCutoff(
+        self: *MemoryStoreSqlite,
+        allocator: std.mem.Allocator,
+        max_count: usize,
+    ) ![]Types.Message {
+        const cutoff = self.getEpisodeCutoffIndex();
+
+        const stmt = try self.db.prepare(
+            "SELECT role, content, created_at_ms FROM messages " ++
+                "ORDER BY id ASC LIMIT ? OFFSET ?;",
+        );
+        defer sqlite.finalize(stmt);
+
+        sqlite.bindInt(stmt, 1, @intCast(max_count));
+        sqlite.bindInt(stmt, 2, @intCast(cutoff));
+
+        var out: std.ArrayList(Types.Message) = .empty;
+        errdefer {
+            for (out.items) |m| allocator.free(@constCast(m.content));
+            out.deinit(allocator);
+        }
+
+        while (sqlite.step(stmt) == c.SQLITE_ROW) {
+            const role_i = sqlite.columnInt(stmt, 0);
+            const txt = sqlite.columnText(stmt, 1);
+            const created = sqlite.columnInt64(stmt, 2);
+
+            try out.append(allocator, .{
+                .role = @enumFromInt(role_i),
+                .content = try allocator.dupe(u8, txt),
+                .created_at_ms = created,
+            });
+        }
+
+        return try out.toOwnedSlice(allocator);
+    }
+
+    pub fn getEpisodeCutoffIndex(self: *MemoryStoreSqlite) usize {
+        const v = self.getMetaI64("episode_cutoff_index") catch 0;
+        return @intCast(@max(v, 0));
+    }
+
+    pub fn advanceEpisodeCutoffToEnd(self: *MemoryStoreSqlite) void {
+        const count = self.countMessages() catch 0;
+        self.setMetaI64("episode_cutoff_index", @intCast(count)) catch {};
+    }
+
+    pub fn addIdentityEntry(
+        self: *MemoryStoreSqlite,
+        allocator: std.mem.Allocator,
+        key: []const u8,
+        value: []const u8,
+    ) !void {
+        _ = allocator;
+        const now = self.nowMs();
+
+        const stmt = try self.db.prepare(
+            "INSERT INTO identity_entries(key, value, created_at_ms) " ++
+                "VALUES(?, ?, ?) " ++
+                "ON CONFLICT(key) DO UPDATE SET value=excluded.value;",
+        );
+        defer sqlite.finalize(stmt);
+
+        sqlite.bindText(stmt, 1, key);
+        sqlite.bindText(stmt, 2, value);
+        sqlite.bindInt64(stmt, 3, now);
+
+        if (sqlite.step(stmt) != c.SQLITE_DONE) {
+            return error.SqliteStepFailed;
+        }
+    }
+
+    pub fn loadIdentityCore(
+        self: *MemoryStoreSqlite,
+        allocator: std.mem.Allocator,
+    ) ![]Types.IdentityEntry {
+        const stmt = try self.db.prepare(
+            "SELECT key, value FROM identity_entries ORDER BY id ASC;",
+        );
+        defer sqlite.finalize(stmt);
+
+        var out: std.ArrayList(Types.IdentityEntry) = .empty;
+        errdefer {
+            for (out.items) |e| {
+                allocator.free(@constCast(e.key));
+                allocator.free(@constCast(e.value));
+            }
+            out.deinit(allocator);
+        }
+
+        while (sqlite.step(stmt) == c.SQLITE_ROW) {
+            const k = sqlite.columnText(stmt, 0);
+            const v = sqlite.columnText(stmt, 1);
+
+            try out.append(allocator, .{
+                .key = try allocator.dupe(u8, k),
+                .value = try allocator.dupe(u8, v),
+            });
+        }
+
+        if (out.items.len == 0) {
+            const tone = "helpful, concise, grounded";
+            const contract =
+                "Memory is read-only unless the user explicitly asks " ++
+                "to store/update something.";
+            try self.addIdentityEntry(allocator, "tone", tone);
+            try self.addIdentityEntry(allocator, "memory_contract", contract);
+            return self.loadIdentityCore(allocator);
+        }
+
+        return try out.toOwnedSlice(allocator);
+    }
+
+    pub fn addMemory(
+        self: *MemoryStoreSqlite,
+        allocator: std.mem.Allocator,
+        item: Types.MemoryItem,
+    ) !i64 {
+        _ = allocator;
+        const now = self.nowMs();
+
+        const stmt = try self.db.prepare(
+            "INSERT INTO memory_items(" ++
+                "kind, subject, predicate, object, confidence, " ++
+                "is_active, created_at_ms, updated_at_ms" ++
+                ") VALUES(?, ?, ?, ?, ?, ?, ?, ?);",
+        );
+        defer sqlite.finalize(stmt);
+
+        sqlite.bindInt(stmt, 1, @intFromEnum(item.kind));
+        sqlite.bindText(stmt, 2, item.subject);
+        sqlite.bindText(stmt, 3, item.predicate);
+        sqlite.bindText(stmt, 4, item.object);
+        sqlite.bindDouble(stmt, 5, item.confidence);
+        sqlite.bindInt(stmt, 6, if (item.is_active) 1 else 0);
+        sqlite.bindInt64(stmt, 7, now);
+        sqlite.bindInt64(stmt, 8, now);
+
+        if (sqlite.step(stmt) != c.SQLITE_DONE) {
+            return error.SqliteStepFailed;
+        }
+
+        return self.db.lastInsertRowId();
+    }
+
+    pub fn addMemoryGoverned(
+        self: *MemoryStoreSqlite,
+        allocator: std.mem.Allocator,
+        policy: MemoryPolicy,
+        item: Types.MemoryItem,
+    ) !i64 {
+        _ = policy;
+        const id = try self.addMemory(allocator, item);
+
+        if (std.mem.eql(u8, item.predicate, "says")) return id;
+        if (std.mem.eql(u8, item.subject, "episode")) return id;
+
+        const now = self.nowMs();
+        const stmt = try self.db.prepare(
+            "UPDATE memory_items SET is_active=0, updated_at_ms=? " ++
+                "WHERE is_active=1 AND kind=? AND subject=? " ++
+                "AND predicate=? AND id<>?;",
+        );
+        defer sqlite.finalize(stmt);
+
+        sqlite.bindInt64(stmt, 1, now);
+        sqlite.bindInt(stmt, 2, @intFromEnum(item.kind));
+        sqlite.bindText(stmt, 3, item.subject);
+        sqlite.bindText(stmt, 4, item.predicate);
+        sqlite.bindInt64(stmt, 5, id);
+
+        _ = sqlite.step(stmt);
+
+        return id;
+    }
+
+    pub fn loadMemoryItems(
+        self: *MemoryStoreSqlite,
+        allocator: std.mem.Allocator,
+        max_count: usize,
+    ) ![]Types.MemoryItem {
+        const stmt = try self.db.prepare(
+            "SELECT id, kind, subject, predicate, object, confidence, " ++
+                "is_active, created_at_ms, updated_at_ms " ++
+                "FROM memory_items WHERE is_active=1 " ++
+                "ORDER BY updated_at_ms DESC LIMIT ?;",
+        );
+        defer sqlite.finalize(stmt);
+
+        sqlite.bindInt(stmt, 1, @intCast(max_count));
+
+        var out: std.ArrayList(Types.MemoryItem) = .empty;
+        errdefer {
+            for (out.items) |m| {
+                allocator.free(@constCast(m.subject));
+                allocator.free(@constCast(m.predicate));
+                allocator.free(@constCast(m.object));
+            }
+            out.deinit(allocator);
+        }
+
+        while (sqlite.step(stmt) == c.SQLITE_ROW) {
+            try out.append(allocator, try self.readMemoryRow(allocator, stmt));
+        }
+
+        return try out.toOwnedSlice(allocator);
+    }
+
+    pub fn loadAllMemoryItems(
+        self: *MemoryStoreSqlite,
+        allocator: std.mem.Allocator,
+    ) ![]Types.MemoryItem {
+        const stmt = try self.db.prepare(
+            "SELECT id, kind, subject, predicate, object, confidence, " ++
+                "is_active, created_at_ms, updated_at_ms " ++
+                "FROM memory_items ORDER BY id ASC;",
+        );
+        defer sqlite.finalize(stmt);
+
+        var out: std.ArrayList(Types.MemoryItem) = .empty;
+        errdefer {
+            for (out.items) |m| {
+                allocator.free(@constCast(m.subject));
+                allocator.free(@constCast(m.predicate));
+                allocator.free(@constCast(m.object));
+            }
+            out.deinit(allocator);
+        }
+
+        while (sqlite.step(stmt) == c.SQLITE_ROW) {
+            try out.append(allocator, try self.readMemoryRow(allocator, stmt));
+        }
+
+        return try out.toOwnedSlice(allocator);
+    }
+
+    pub fn hasActiveMemoryExact(
+        self: *MemoryStoreSqlite,
+        kind: Types.MemoryKind,
+        subject: []const u8,
+        predicate: []const u8,
+        object: []const u8,
+    ) bool {
+        const stmt = self.db.prepare(
+            "SELECT 1 FROM memory_items " ++
+                "WHERE is_active=1 AND kind=? AND subject=? " ++
+                "AND predicate=? AND object=? LIMIT 1;",
+        ) catch return false;
+        defer sqlite.finalize(stmt);
+
+        sqlite.bindInt(stmt, 1, @intFromEnum(kind));
+        sqlite.bindText(stmt, 2, subject);
+        sqlite.bindText(stmt, 3, predicate);
+        sqlite.bindText(stmt, 4, object);
+
+        return sqlite.step(stmt) == c.SQLITE_ROW;
+    }
+
+    pub fn lastActiveMemoryTimeForKey(
+        self: *MemoryStoreSqlite,
+        kind: Types.MemoryKind,
+        subject: []const u8,
+        predicate: []const u8,
+    ) ?i64 {
+        const stmt = self.db.prepare(
+            "SELECT MAX(updated_at_ms) FROM memory_items " ++
+                "WHERE is_active=1 AND kind=? AND subject=? AND predicate=?;",
+        ) catch return null;
+        defer sqlite.finalize(stmt);
+
+        sqlite.bindInt(stmt, 1, @intFromEnum(kind));
+        sqlite.bindText(stmt, 2, subject);
+        sqlite.bindText(stmt, 3, predicate);
+
+        if (sqlite.step(stmt) != c.SQLITE_ROW) return null;
+        const val = sqlite.columnInt64(stmt, 0);
+        if (val == 0) return null;
+        return val;
+    }
+
+    pub fn latestActiveObjectByKey(
+        self: *MemoryStoreSqlite,
+        subject: []const u8,
+        predicate: []const u8,
+    ) ?[]const u8 {
+        const stmt = self.db.prepare(
+            "SELECT object FROM memory_items " ++
+                "WHERE is_active=1 AND subject=? AND predicate=? " ++
+                "ORDER BY updated_at_ms DESC LIMIT 1;",
+        ) catch return null;
+        defer sqlite.finalize(stmt);
+
+        sqlite.bindText(stmt, 1, subject);
+        sqlite.bindText(stmt, 2, predicate);
+
+        if (sqlite.step(stmt) != c.SQLITE_ROW) return null;
+        const obj = sqlite.columnText(stmt, 0);
+        if (obj.len == 0) return null;
+        const copy_len = @min(obj.len, self.obj_buf.len);
+        @memcpy(self.obj_buf[0..copy_len], obj[0..copy_len]);
+        self.obj_len = copy_len;
+        return self.obj_buf[0..self.obj_len];
+    }
+
+    pub fn decayMemory(
+        self: *MemoryStoreSqlite,
+        policy: MemoryPolicy,
+        now_ms: i64,
+    ) void {
+        const sel_stmt = self.db.prepare(
+            "SELECT id, confidence, updated_at_ms FROM memory_items " ++
+                "WHERE is_active=1;",
+        ) catch return;
+        defer sqlite.finalize(sel_stmt);
+
+        const upd_stmt = self.db.prepare(
+            "UPDATE memory_items " ++
+                "SET confidence=?, is_active=?, updated_at_ms=? WHERE id=?;",
+        ) catch return;
+        defer sqlite.finalize(upd_stmt);
+
+        while (sqlite.step(sel_stmt) == c.SQLITE_ROW) {
+            const id = sqlite.columnInt64(sel_stmt, 0);
+            const conf = sqlite.columnDouble(sel_stmt, 1);
+            const updated = sqlite.columnInt64(sel_stmt, 2);
+
+            const age_ms = now_ms - updated;
+            const decayed = policy.decayConfidence(@floatCast(conf), age_ms);
+
+            if (@abs(decayed - @as(f32, @floatCast(conf))) > policy.epsilon) {
+                const new_active: c_int = if (decayed < policy.deactivate_below)
+                    0
+                else
+                    1;
+
+                sqlite.bindDouble(upd_stmt, 1, decayed);
+                sqlite.bindInt(upd_stmt, 2, new_active);
+                sqlite.bindInt64(upd_stmt, 3, now_ms);
+                sqlite.bindInt64(upd_stmt, 4, id);
+                _ = sqlite.step(upd_stmt);
+                sqlite.reset(upd_stmt);
+            }
+        }
+    }
+
+    pub fn countMessages(self: *MemoryStoreSqlite) !usize {
+        return @intCast(try self.scalarI64("SELECT COUNT(*) FROM messages;"));
+    }
+
+    pub fn countMemories(self: *MemoryStoreSqlite) !usize {
+        return @intCast(try self.scalarI64(
+            "SELECT COUNT(*) FROM memory_items;",
+        ));
+    }
+
+    pub fn countActiveMemories(self: *MemoryStoreSqlite) !usize {
+        return @intCast(try self.scalarI64(
+            "SELECT COUNT(*) FROM memory_items WHERE is_active=1;",
+        ));
+    }
+
+    fn setMetaDefault(
+        self: *MemoryStoreSqlite,
+        key: []const u8,
+        val: []const u8,
+    ) !void {
+        const stmt = try self.db.prepare(
+            "INSERT OR IGNORE INTO meta(key, value) VALUES(?, ?);",
+        );
+        defer sqlite.finalize(stmt);
+
+        sqlite.bindText(stmt, 1, key);
+        sqlite.bindText(stmt, 2, val);
+        _ = sqlite.step(stmt);
+    }
+
+    fn getMetaI64(self: *MemoryStoreSqlite, key: []const u8) !i64 {
+        const stmt = try self.db.prepare(
+            "SELECT value FROM meta WHERE key=?;",
+        );
+        defer sqlite.finalize(stmt);
+
+        sqlite.bindText(stmt, 1, key);
+
+        if (sqlite.step(stmt) != c.SQLITE_ROW) return error.MetaMissing;
+
+        const txt = sqlite.columnText(stmt, 0);
+        return std.fmt.parseInt(i64, txt, 10) catch error.MetaParseFailed;
+    }
+
+    fn setMetaI64(self: *MemoryStoreSqlite, key: []const u8, value: i64) !void {
+        var buf: [64]u8 = undefined;
+        const s = std.fmt.bufPrint(&buf, "{d}", .{value}) catch return;
+
+        const stmt = try self.db.prepare(
+            "INSERT INTO meta(key, value) VALUES(?, ?) " ++
+                "ON CONFLICT(key) DO UPDATE SET value=excluded.value;",
+        );
+        defer sqlite.finalize(stmt);
+
+        sqlite.bindText(stmt, 1, key);
+        sqlite.bindText(stmt, 2, s);
+
+        if (sqlite.step(stmt) != c.SQLITE_DONE) {
+            return error.SqliteStepFailed;
+        }
+    }
+
+    fn scalarI64(self: *MemoryStoreSqlite, sql: [*:0]const u8) !i64 {
+        const stmt = try self.db.prepare(sql);
+        defer sqlite.finalize(stmt);
+
+        if (sqlite.step(stmt) != c.SQLITE_ROW) return error.SqliteStepFailed;
+        return sqlite.columnInt64(stmt, 0);
+    }
+
+    fn readMemoryRow(
+        self: *MemoryStoreSqlite,
+        allocator: std.mem.Allocator,
+        stmt: *c.sqlite3_stmt,
+    ) !Types.MemoryItem {
+        _ = self;
+        return .{
+            .id = sqlite.columnInt64(stmt, 0),
+            .kind = @enumFromInt(sqlite.columnInt(stmt, 1)),
+            .subject = try allocator.dupe(u8, sqlite.columnText(stmt, 2)),
+            .predicate = try allocator.dupe(u8, sqlite.columnText(stmt, 3)),
+            .object = try allocator.dupe(u8, sqlite.columnText(stmt, 4)),
+            .confidence = @floatCast(sqlite.columnDouble(stmt, 5)),
+            .is_active = sqlite.columnInt(stmt, 6) != 0,
+            .created_at_ms = sqlite.columnInt64(stmt, 7),
+            .updated_at_ms = sqlite.columnInt64(stmt, 8),
+        };
+    }
+};
+
+test "MemoryStoreSqlite schema creation" {
+    var store = try MemoryStoreSqlite.init(":memory:");
+    defer store.deinit();
+    try store.ensureSchema();
+
+    const count = try store.countMessages();
+    try std.testing.expectEqual(@as(usize, 0), count);
+}
+
+test "MemoryStoreSqlite message round-trip" {
+    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
+    defer _ = gpa.deinit();
+    const allocator = gpa.allocator();
+
+    var store = try MemoryStoreSqlite.init(":memory:");
+    defer store.deinit();
+    try store.ensureSchema();
+
+    try store.insertMessage(allocator, .user, "hello");
+    try store.insertMessage(allocator, .assistant, "hi there");
+
+    const msgs = try store.loadRecentMessages(allocator, 10);
+    defer {
+        for (msgs) |m| allocator.free(@constCast(m.content));
+        allocator.free(msgs);
+    }
+
+    try std.testing.expectEqual(@as(usize, 2), msgs.len);
+    try std.testing.expectEqualStrings("hello", msgs[0].content);
+    try std.testing.expectEqualStrings("hi there", msgs[1].content);
+}
+
+test "MemoryStoreSqlite memory conflict resolution" {
+    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
+    defer _ = gpa.deinit();
+    const allocator = gpa.allocator();
+
+    var store = try MemoryStoreSqlite.init(":memory:");
+    defer store.deinit();
+    try store.ensureSchema();
+
+    const policy = MemoryPolicy{};
+
+    _ = try store.addMemoryGoverned(allocator, policy, .{
+        .kind = .note,
+        .subject = "user",
+        .predicate = "intent",
+        .object = "wants A",
+        .confidence = 0.6,
+        .is_active = true,
+    });
+
+    _ = try store.addMemoryGoverned(allocator, policy, .{
+        .kind = .note,
+        .subject = "user",
+        .predicate = "intent",
+        .object = "wants B",
+        .confidence = 0.9,
+        .is_active = true,
+    });
+
+    const active = try store.countActiveMemories();
+    try std.testing.expectEqual(@as(usize, 1), active);
+
+    const items = try store.loadMemoryItems(allocator, 10);
+    defer {
+        for (items) |m| {
+            allocator.free(@constCast(m.subject));
+            allocator.free(@constCast(m.predicate));
+            allocator.free(@constCast(m.object));
+        }
+        allocator.free(items);
+    }
+
+    try std.testing.expectEqualStrings("wants B", items[0].object);
+}

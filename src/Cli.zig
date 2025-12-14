@@ -254,7 +254,11 @@ pub const Cli = struct {
 
         if (!self.no_color) {
             var color_buf: [1024]u8 = undefined;
-            const colored = MsgKind.run.colorize(self.theme, txt, &color_buf) catch txt;
+            const colored = MsgKind.run.colorize(
+                self.theme,
+                txt,
+                &color_buf,
+            ) catch txt;
             stdout.print("{s}", .{colored}) catch {};
         } else {
             stdout.print("{s}", .{txt}) catch {};

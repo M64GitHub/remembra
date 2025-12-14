@@ -24,8 +24,12 @@ pub fn classifyMemoryIntent(user_text: []const u8) MemoryIntent {
 }
 
 test "Intent explicit_store" {
-    try std.testing.expect(classifyMemoryIntent("please remember x") == .explicit_store);
-    try std.testing.expect(classifyMemoryIntent("Remember this") == .explicit_store);
+    try std.testing.expect(
+        classifyMemoryIntent("please remember x") == .explicit_store,
+    );
+    try std.testing.expect(
+        classifyMemoryIntent("Remember this") == .explicit_store,
+    );
 }
 
 test "Intent none" {

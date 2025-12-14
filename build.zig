@@ -13,6 +13,8 @@ pub fn build(b: *std.Build) void {
         }),
     });
 
+    exe.root_module.linkSystemLibrary("sqlite3", .{});
+
     b.installArtifact(exe);
 
     const run_cmd = b.addRunArtifact(exe);
@@ -28,6 +30,8 @@ pub fn build(b: *std.Build) void {
             .optimize = optimize,
         }),
     });
+
+    tests.root_module.linkSystemLibrary("sqlite3", .{});
 
     const test_step = b.step("test", "Run tests");
     test_step.dependOn(&b.addRunArtifact(tests).step);

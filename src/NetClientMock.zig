@@ -137,7 +137,10 @@ pub const NetClientMock = struct {
         return full[start..end];
     }
 
-    fn openAiWrappedContent(allocator: std.mem.Allocator, content: []const u8) ![]u8 {
+    fn openAiWrappedContent(
+        allocator: std.mem.Allocator,
+        content: []const u8,
+    ) ![]u8 {
         // Minimal OpenAI-ish response with choices[0].message.content
         return std.fmt.allocPrint(
             allocator,
@@ -146,7 +149,10 @@ pub const NetClientMock = struct {
         );
     }
 
-    fn openAiWrappedContentEscaped(allocator: std.mem.Allocator, content: []const u8) ![]u8 {
+    fn openAiWrappedContentEscaped(
+        allocator: std.mem.Allocator,
+        content: []const u8,
+    ) ![]u8 {
         // Escape quotes in content for embedding in JSON string
         var escaped: std.ArrayList(u8) = .empty;
         defer escaped.deinit(allocator);
