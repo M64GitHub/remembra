@@ -1,6 +1,7 @@
 const std = @import("std");
 const Types = @import("Types.zig");
 const JsonUtils = @import("JsonUtils.zig");
+const LlmParams = @import("config/ConfigIdentity.zig").LlmParams;
 
 pub const EpisodeSummary = struct {
     title: []const u8,
@@ -12,6 +13,7 @@ pub const EpisodeCompactor = struct {
         allocator: std.mem.Allocator,
         provider: anytype,
         msgs: []const Types.Message,
+        llm_params: LlmParams,
     ) !EpisodeSummary {
         const prompt = try buildPrompt(allocator, msgs);
         defer allocator.free(prompt);
@@ -27,8 +29,8 @@ pub const EpisodeCompactor = struct {
 
         const response = try provider.chat(allocator, call_msgs, .{
             .model = "mock-episode",
-            .temperature = 0.2,
-            .max_tokens = 512,
+            .temperature = llm_params.temperature,
+            .max_tokens = llm_params.max_tokens,
         });
         defer allocator.free(response);
 

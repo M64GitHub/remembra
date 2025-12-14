@@ -318,9 +318,24 @@ pub const MemoryStoreSqlite = struct {
         }
     }
 
+    pub const IdentityDefaults = struct {
+        tone: []const u8 = "helpful, concise, grounded, engaging",
+        memory_contract: []const u8 =
+            "Memory is read-only unless the user explicitly asks " ++
+            "to store/update something.",
+    };
+
     pub fn loadIdentityCore(
         self: *MemoryStoreSqlite,
         allocator: std.mem.Allocator,
+    ) ![]Types.IdentityEntry {
+        return self.loadIdentityCoreWithDefaults(allocator, .{});
+    }
+
+    pub fn loadIdentityCoreWithDefaults(
+        self: *MemoryStoreSqlite,
+        allocator: std.mem.Allocator,
+        defaults: IdentityDefaults,
     ) ![]Types.IdentityEntry {
         const stmt = try self.db.prepare(
             "SELECT key, value FROM identity_entries ORDER BY id ASC;",
@@ -347,13 +362,13 @@ pub const MemoryStoreSqlite = struct {
         }
 
         if (out.items.len == 0) {
-            const tone = "helpful, concise, grounded, engaging";
-            const contract =
-                "Memory is read-only unless the user explicitly asks " ++
-                "to store/update something.";
-            try self.addIdentityEntry(allocator, "tone", tone);
-            try self.addIdentityEntry(allocator, "memory_contract", contract);
-            return self.loadIdentityCore(allocator);
+            try self.addIdentityEntry(allocator, "tone", defaults.tone);
+            try self.addIdentityEntry(
+                allocator,
+                "memory_contract",
+                defaults.memory_contract,
+            );
+            return self.loadIdentityCoreWithDefaults(allocator, defaults);
         }
 
         return try out.toOwnedSlice(allocator);
