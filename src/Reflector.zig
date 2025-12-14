@@ -1,7 +1,7 @@
 const std = @import("std");
 const Types = @import("Types.zig");
-const Provider = @import("Provider.zig").Provider;
 const Cli = @import("Cli.zig").Cli;
+const JsonUtils = @import("JsonUtils.zig");
 
 pub const ReflectionProposal = struct {
     action: Action,
@@ -21,7 +21,7 @@ pub const Action = enum {
 pub const Reflector = struct {
     pub fn run(
         allocator: std.mem.Allocator,
-        provider: *Provider,
+        provider: anytype,
         identity: []const Types.IdentityEntry,
         memory: []const Types.MemoryItem,
         recent: []const Types.Message,
@@ -43,16 +43,29 @@ pub const Reflector = struct {
 
         const msgs = &[_]Types.Message{
             .{ .role = .system, .content = prompt, .created_at_ms = 0 },
+            .{
+                .role = .user,
+                .content = "Analyze and output JSON proposals.",
+                .created_at_ms = 0,
+            },
         };
 
-        const json = try provider.chat(allocator, msgs, .{
+        const response = try provider.chat(allocator, msgs, .{
             .model = "mock-reflection",
             .temperature = 0.2,
             .max_tokens = 512,
         });
-        defer allocator.free(json);
+        defer allocator.free(response);
 
-        return parseProposals(allocator, json);
+        cli.msg(.dbg, "[Reflector] LLM response: {s}", .{response});
+
+        const extracted = JsonUtils.extractJsonObject(response);
+        cli.msg(.dbg, "[Reflector] Extracted JSON: {s}", .{extracted});
+
+        return parseProposals(allocator, extracted) catch {
+            cli.msg(.wrn, "[Reflector] Failed to parse JSON", .{});
+            return allocator.alloc(ReflectionProposal, 0);
+        };
     }
 
     fn buildReflectionPrompt(
@@ -74,17 +87,19 @@ pub const Reflector = struct {
             \\- Only propose changes that were explicitly stated by the user.
             \\- Do not infer preferences or facts.
             \\- Use low confidence unless the user was explicit.
-            \\- Output JSON ONLY.
+            \\- Output JSON ONLY. No other text.
             \\
-            \\Schema:
+            \\Schema (subject=who, predicate=relationship, object=value):
             \\{ "proposals": [
             \\  { "action": "add|update|deactivate",
             \\    "kind": "fact|preference|project|note",
-            \\    "subject": "...",
-            \\    "predicate": "...",
-            \\    "object": "...",
-            \\    "confidence": 0.0-1.0 }
+            \\    "subject": "user",
+            \\    "predicate": "favorite_color",
+            \\    "object": "blue",
+            \\    "confidence": 0.8 }
             \\] }
+            \\
+            \\Empty if nothing to store: { "proposals": [] }
             \\
             \\
         );
@@ -161,19 +176,20 @@ pub const Reflector = struct {
             if (item != .object) continue;
             const o = item.object;
 
-            const action = parseAction(o.get("action") orelse continue);
-            const kind = parseKind(o.get("kind") orelse continue);
-
-            const subject =
-                try dupStr(allocator, o.get("subject") orelse continue);
-
-            const predicate = try dupStr(allocator, o.get("predicate") orelse
-                continue);
-
-            const object = try dupStr(allocator, o.get("object") orelse
-                continue);
-
+            const action_v = o.get("action") orelse continue;
+            const kind_v = o.get("kind") orelse continue;
+            const subject_v = o.get("subject") orelse continue;
+            const predicate_v = o.get("predicate") orelse continue;
+            const object_v = o.get("object") orelse continue;
             const conf_v = o.get("confidence") orelse continue;
+
+            if (subject_v != .string) continue;
+            if (predicate_v != .string) continue;
+            if (object_v != .string) continue;
+
+            const action = parseAction(action_v);
+            const kind = parseKind(kind_v);
+
             const confidence: f32 = switch (conf_v) {
                 .float => @floatCast(conf_v.float),
                 .integer => @floatFromInt(conf_v.integer),
@@ -183,19 +199,14 @@ pub const Reflector = struct {
             try out.append(allocator, .{
                 .action = action,
                 .kind = kind,
-                .subject = subject,
-                .predicate = predicate,
-                .object = object,
+                .subject = try allocator.dupe(u8, subject_v.string),
+                .predicate = try allocator.dupe(u8, predicate_v.string),
+                .object = try allocator.dupe(u8, object_v.string),
                 .confidence = confidence,
             });
         }
 
         return out.toOwnedSlice(allocator);
-    }
-
-    fn dupStr(allocator: std.mem.Allocator, v: std.json.Value) ![]const u8 {
-        if (v != .string) return error.InvalidReflectionJson;
-        return allocator.dupe(u8, v.string);
     }
 
     fn parseAction(v: std.json.Value) Action {

@@ -1,11 +1,11 @@
 const std = @import("std");
 const Types = @import("Types.zig");
-const Provider = @import("Provider.zig").Provider;
 const MemoryPolicy = @import("MemoryPolicy.zig").MemoryPolicy;
 const EpisodeCompactor = @import("EpisodeCompactor.zig").EpisodeCompactor;
 const Temporal = @import("Temporal.zig").Temporal;
 const Cli = @import("Cli.zig").Cli;
 const MemoryStoreSqlite = @import("MemoryStoreSqlite.zig").MemoryStoreSqlite;
+const JsonUtils = @import("JsonUtils.zig");
 
 pub const IdleThinker = struct {
     pub const Params = struct {
@@ -16,7 +16,7 @@ pub const IdleThinker = struct {
 
     pub fn maybeRun(
         allocator: std.mem.Allocator,
-        provider: *Provider,
+        provider: anytype,
         store: anytype,
         policy: MemoryPolicy,
         cli: *Cli,
@@ -117,7 +117,7 @@ pub const IdleThinker = struct {
 
     fn generateThought(
         allocator: std.mem.Allocator,
-        provider: *Provider,
+        provider: anytype,
         store: anytype,
         now_ms: i64,
     ) ![]u8 {
@@ -126,16 +126,24 @@ pub const IdleThinker = struct {
 
         const msgs = &[_]Types.Message{
             .{ .role = .system, .content = prompt, .created_at_ms = 0 },
+            .{
+                .role = .user,
+                .content = "Generate thought and output JSON.",
+                .created_at_ms = 0,
+            },
         };
 
-        const json = try provider.chat(allocator, msgs, .{
+        const response = try provider.chat(allocator, msgs, .{
             .model = "mock-idle",
             .temperature = 0.4,
             .max_tokens = 160,
         });
-        defer allocator.free(json);
+        defer allocator.free(response);
 
-        return parseThoughtJson(allocator, json);
+        const extracted = JsonUtils.extractJsonObject(response);
+        return parseThoughtJson(allocator, extracted) catch {
+            return allocator.dupe(u8, response);
+        };
     }
 
     fn buildThoughtPrompt(
