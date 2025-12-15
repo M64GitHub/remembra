@@ -97,9 +97,10 @@ fn cmdDbClear(app: *App) !Result {
 }
 
 fn cmdDbStats(app: *App) Result {
-    const mc = app.store.countMessages() catch 0;
-    const mm = app.store.countMemories() catch 0;
-    const ma = app.store.countActiveMemories() catch 0;
+    const pid = app.store.getActivePersonaId() orelse 1;
+    const mc = app.store.countMessages(pid) catch 0;
+    const mm = app.store.countMemories(pid) catch 0;
+    const ma = app.store.countActiveMemories(pid) catch 0;
     app.cli.msg(
         .inf,
         "messages={d} memories={d} active={d}",
@@ -109,7 +110,8 @@ fn cmdDbStats(app: *App) Result {
 }
 
 fn cmdMemLs(allocator: std.mem.Allocator, app: *App) !Result {
-    const all = try app.store.loadAllMemoryItems(allocator);
+    const pid = app.store.getActivePersonaId() orelse 1;
+    const all = try app.store.loadAllMemoryItems(allocator, pid);
     defer {
         for (all) |m| {
             allocator.free(@constCast(m.subject));
@@ -153,8 +155,9 @@ fn cmdMemAdd(
         return .handled;
     }
 
+    const pid = app.store.getActivePersonaId() orelse 1;
     const policy = app.ident.memory_policy;
-    const id = try app.store.addMemoryGoverned(allocator, policy, .{
+    const id = try app.store.addMemoryGoverned(allocator, pid, policy, .{
         .kind = .note,
         .subject = "user",
         .predicate = "says",
@@ -176,16 +179,18 @@ fn cmdMemDecay(
         app.cli.msg(.wrn, "Usage: /mem decay <hours>", .{});
         return .handled;
     };
+    const pid = app.store.getActivePersonaId() orelse 1;
     const now = app.store.nowMs();
     const simulated_now = now + hours * 60 * 60 * 1000;
     const policy = app.ident.memory_policy;
 
-    app.store.decayMemory(policy, simulated_now);
+    app.store.decayMemory(pid, policy, simulated_now);
 
     app.cli.msg(.ok, "Decayed memory by ~{d} hours.", .{hours});
 
     const mem = try app.store.loadMemoryItems(
         allocator,
+        pid,
         app.sys.max_history_display,
     );
     defer {
@@ -215,8 +220,10 @@ fn cmdTimeAdvance(app: *App, arg: []const u8) Result {
 }
 
 fn cmdHistory(allocator: std.mem.Allocator, app: *App) !Result {
+    const pid = app.store.getActivePersonaId() orelse 1;
     const msgs = try app.store.loadRecentMessages(
         allocator,
+        pid,
         app.sys.max_history_display,
     );
     defer {
@@ -228,7 +235,8 @@ fn cmdHistory(allocator: std.mem.Allocator, app: *App) !Result {
 }
 
 fn cmdHistoryAll(allocator: std.mem.Allocator, app: *App) !Result {
-    const msgs = try app.store.loadAllMessages(allocator);
+    const pid = app.store.getActivePersonaId() orelse 1;
+    const msgs = try app.store.loadAllMessages(allocator, pid);
     defer {
         for (msgs) |m| allocator.free(@constCast(m.content));
         allocator.free(msgs);
@@ -246,8 +254,9 @@ fn cmdHistoryHours(
         app.cli.msg(.wrn, "Usage: /history [all|<hours>]", .{});
         return .handled;
     };
+    const pid = app.store.getActivePersonaId() orelse 1;
     const since_ms = app.store.nowMs() - (hours * 60 * 60 * 1000);
-    const msgs = try app.store.loadMessagesSince(allocator, since_ms);
+    const msgs = try app.store.loadMessagesSince(allocator, pid, since_ms);
     defer {
         for (msgs) |m| allocator.free(@constCast(m.content));
         allocator.free(msgs);
@@ -257,12 +266,14 @@ fn cmdHistoryHours(
 }
 
 fn cmdIdleRun(allocator: std.mem.Allocator, app: *App) !Result {
+    const pid = app.store.getActivePersonaId() orelse 1;
     const now_ms = app.store.nowMs();
     const policy = app.ident.memory_policy;
     try IdleThinker.maybeRun(
         allocator,
         &app.provider,
         &app.store,
+        pid,
         policy,
         app.cli,
         &app.events,
@@ -287,6 +298,7 @@ fn cmdIdleTick(
         app.cli.msg(.wrn, "Usage: /idle tick <minutes>", .{});
         return .handled;
     };
+    const pid = app.store.getActivePersonaId() orelse 1;
     app.store.advanceTimeMinutes(minutes);
     const now_ms = app.store.nowMs();
     const policy = app.ident.memory_policy;
@@ -294,6 +306,7 @@ fn cmdIdleTick(
         allocator,
         &app.provider,
         &app.store,
+        pid,
         policy,
         app.cli,
         &app.events,
@@ -311,11 +324,13 @@ fn cmdIdleTick(
 }
 
 fn cmdEpisodeCompact(allocator: std.mem.Allocator, app: *App) !Result {
+    const pid = app.store.getActivePersonaId() orelse 1;
     const policy = app.ident.memory_policy;
-    app.store.decayMemory(policy, app.store.nowMs());
+    app.store.decayMemory(pid, policy, app.store.nowMs());
 
     const ep_msgs = try app.store.loadMessagesSinceCutoff(
         allocator,
+        pid,
         app.sys.max_episode_messages,
     );
     defer {
@@ -327,7 +342,7 @@ fn cmdEpisodeCompact(allocator: std.mem.Allocator, app: *App) !Result {
         app.cli.msg(
             .inf,
             "No new messages since last episode cutoff (index {d}).",
-            .{app.store.getEpisodeCutoffIndex()},
+            .{app.store.getEpisodeCutoffIndex(pid)},
         );
         return .handled;
     }
@@ -352,7 +367,7 @@ fn cmdEpisodeCompact(allocator: std.mem.Allocator, app: *App) !Result {
     );
     defer allocator.free(combined);
 
-    const id = try app.store.addMemoryGoverned(allocator, policy, .{
+    const id = try app.store.addMemoryGoverned(allocator, pid, policy, .{
         .kind = .note,
         .subject = "episode",
         .predicate = "summary",
@@ -361,18 +376,19 @@ fn cmdEpisodeCompact(allocator: std.mem.Allocator, app: *App) !Result {
         .is_active = true,
     });
 
-    app.store.advanceEpisodeCutoffToEnd();
+    app.store.advanceEpisodeCutoffToEnd(pid);
 
     app.cli.msg(
         .ok,
         "Stored episode summary as [mem#{d}] and advanced cutoff to {d}.",
-        .{ id, app.store.getEpisodeCutoffIndex() },
+        .{ id, app.store.getEpisodeCutoffIndex(pid) },
     );
     return .handled;
 }
 
 fn cmdEvents(allocator: std.mem.Allocator, app: *App) !Result {
-    const events = try app.events.query(allocator, null, null, 20);
+    const pid = app.store.getActivePersonaId() orelse 1;
+    const events = try app.events.query(allocator, pid, null, null, 20);
     defer EventSystem.freeEvents(allocator, events);
 
     if (events.len == 0) {

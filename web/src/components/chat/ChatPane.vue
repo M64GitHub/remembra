@@ -1,7 +1,7 @@
 <script setup>
-import { ref, onMounted, nextTick } from 'vue'
+import { ref, onMounted, onUnmounted, nextTick } from 'vue'
 import { chat, command } from '../../api/client.js'
-import { appState } from '../../stores/appState.js'
+import { appState, registerReload } from '../../stores/appState.js'
 import MessageList from './MessageList.vue'
 import ChatInput from './ChatInput.vue'
 
@@ -113,8 +113,21 @@ async function sendMessage(text) {
   }
 }
 
+let unregisterReload = null
+
 onMounted(() => {
   loadMessages()
+
+  // Register for persona change reloads
+  unregisterReload = registerReload('chat', async () => {
+    messages.value = []
+    hasMore.value = true
+    await loadMessages()
+  })
+})
+
+onUnmounted(() => {
+  if (unregisterReload) unregisterReload()
 })
 </script>
 

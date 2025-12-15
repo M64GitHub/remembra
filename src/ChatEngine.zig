@@ -58,22 +58,24 @@ pub fn processAndReturn(
     app: *App,
     user_input: []const u8,
 ) ![]u8 {
-    const allow_ops = checkSecurity(app, user_input);
+    const pid = app.store.getActivePersonaId() orelse 1;
 
-    try runIdleThinker(allocator, app);
+    const allow_ops = checkSecurity(app, pid, user_input);
 
-    var ctx = try gatherContext(allocator, app);
+    try runIdleThinker(allocator, app, pid);
+
+    var ctx = try gatherContext(allocator, app, pid);
     defer ctx.deinit(allocator);
 
-    const reply = try generateReply(allocator, app, &ctx, user_input);
+    const reply = try generateReply(allocator, app, pid, &ctx, user_input);
     errdefer allocator.free(reply);
 
-    try runReflection(allocator, app, &ctx, reply, allow_ops);
+    try runReflection(allocator, app, pid, &ctx, reply, allow_ops);
 
     return reply;
 }
 
-fn checkSecurity(app: *App, input: []const u8) bool {
+fn checkSecurity(app: *App, pid: i64, input: []const u8) bool {
     const guard = InjectionGuard.check(input);
     if (guard.is_attack) {
         app.cli.msg(
@@ -82,22 +84,23 @@ fn checkSecurity(app: *App, input: []const u8) bool {
                 "Memory ops disabled.",
             .{guard.reason},
         );
-        app.events.emit(.security_warning, "injection", guard.reason);
+        app.events.emit(pid, .security_warning, "injection", guard.reason);
     }
     const intent = Intent.classifyMemoryIntent(input);
     return !guard.is_attack and (intent == .explicit_store);
 }
 
-fn runIdleThinker(allocator: std.mem.Allocator, app: *App) !void {
+fn runIdleThinker(allocator: std.mem.Allocator, app: *App, pid: i64) !void {
     const now_ms = app.store.nowMs();
     const policy = app.ident.memory_policy;
 
-    app.store.decayMemory(policy, now_ms);
+    app.store.decayMemory(pid, policy, now_ms);
 
     try IdleThinker.maybeRun(
         allocator,
         &app.provider,
         &app.store,
+        pid,
         policy,
         app.cli,
         &app.events,
@@ -112,11 +115,15 @@ fn runIdleThinker(allocator: std.mem.Allocator, app: *App) !void {
     );
 }
 
-fn gatherContext(allocator: std.mem.Allocator, app: *App) !TurnContext {
-    const identity = try app.store.loadIdentityCoreWithDefaults(allocator, .{
-        .tone = app.ident.default_tone,
-        .memory_contract = app.ident.default_memory_contract,
-    });
+fn gatherContext(allocator: std.mem.Allocator, app: *App, pid: i64) !TurnContext {
+    const identity = try app.store.loadIdentityCoreWithDefaults(
+        allocator,
+        pid,
+        .{
+            .tone = app.ident.default_tone,
+            .memory_contract = app.ident.default_memory_contract,
+        },
+    );
     errdefer {
         for (identity) |e| {
             allocator.free(@constCast(e.key));
@@ -129,6 +136,7 @@ fn gatherContext(allocator: std.mem.Allocator, app: *App) !TurnContext {
 
     const candidates = try app.store.loadMemoryCandidates(
         allocator,
+        pid,
         app.sys.max_memory_candidates,
     );
     errdefer {
@@ -156,6 +164,7 @@ fn gatherContext(allocator: std.mem.Allocator, app: *App) !TurnContext {
 
     const recent = try app.store.loadRecentMessages(
         allocator,
+        pid,
         app.sys.max_recent_messages_llm,
     );
     errdefer {
@@ -164,8 +173,8 @@ fn gatherContext(allocator: std.mem.Allocator, app: *App) !TurnContext {
     }
 
     const last_user_ms = app.store.getLastUserMsgMs();
-    const last_episode = app.store.latestActiveObjectByKey("episode", "summary");
-    const last_thought = app.store.latestActiveObjectByKey("self", "thought");
+    const last_episode = app.store.latestActiveObjectByKey(pid, "episode", "summary");
+    const last_thought = app.store.latestActiveObjectByKey(pid, "self", "thought");
 
     return .{
         .identity = identity,
@@ -182,15 +191,17 @@ fn gatherContext(allocator: std.mem.Allocator, app: *App) !TurnContext {
 fn generateReply(
     allocator: std.mem.Allocator,
     app: *App,
+    pid: i64,
     ctx: *const TurnContext,
     user_input: []const u8,
 ) ![]u8 {
-    try app.store.insertMessage(allocator, .user, user_input);
+    try app.store.insertMessage(allocator, pid, .user, user_input);
 
     app.cli.msg(.dbg, "injecting {d} memory items", .{ctx.memory.len});
     app.cli.msg(.dbg, "injecting {d} recent messages", .{ctx.recent.len});
 
     app.events.emitFmt(
+        pid,
         .context_built,
         "chat",
         "memory={d} recent={d}",
@@ -235,9 +246,9 @@ fn generateReply(
     });
     errdefer allocator.free(reply);
 
-    try app.store.insertMessage(allocator, .assistant, reply);
+    try app.store.insertMessage(allocator, pid, .assistant, reply);
 
-    app.events.emitFmt(.chat_completed, "chat", "len={d}", .{reply.len});
+    app.events.emitFmt(pid, .chat_completed, "chat", "len={d}", .{reply.len});
 
     return reply;
 }
@@ -245,12 +256,14 @@ fn generateReply(
 fn runReflection(
     allocator: std.mem.Allocator,
     app: *App,
+    pid: i64,
     ctx: *const TurnContext,
     reply: []const u8,
     allow_memory_ops: bool,
 ) !void {
     const recent_for_reflection = try app.store.loadRecentMessages(
         allocator,
+        pid,
         app.sys.max_recent_messages_llm,
     );
     defer {
@@ -273,6 +286,7 @@ fn runReflection(
     const proposals = try Reflector.run(
         allocator,
         &app.provider,
+        pid,
         ctx.identity,
         ctx.memory,
         reflection_context,
@@ -300,6 +314,7 @@ fn runReflection(
             try Governor.apply(
                 allocator,
                 &app.store,
+                pid,
                 policy,
                 proposals,
                 app.cli,
@@ -317,6 +332,7 @@ fn runReflection(
             );
             for (proposals) |p| {
                 app.events.emit(
+                    pid,
                     .governor_blocked,
                     p.subject,
                     "no explicit intent",

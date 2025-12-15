@@ -1,7 +1,7 @@
 <script setup>
-import { ref, onMounted, onUnmounted, nextTick, computed } from 'vue'
+import { ref, watch, onMounted, onUnmounted, nextTick, computed } from 'vue'
 import { events as eventsApi } from '../../api/client.js'
-import { appState } from '../../stores/appState.js'
+import { appState, registerReload } from '../../stores/appState.js'
 import EventLine from './EventLine.vue'
 
 const events = ref([])
@@ -95,16 +95,25 @@ function clearEvents() {
   lastTimestamp.value = 0
 }
 
+let unregisterReload = null
+
 onMounted(() => {
   // Delay initial fetch to let messages load first (single-threaded server)
   setTimeout(() => {
     fetchEvents()
     pollInterval = setInterval(fetchEvents, 5000)  // Poll every 5 seconds
   }, 1500)
+
+  // Register for persona change reloads
+  unregisterReload = registerReload('events', async () => {
+    clearEvents()
+    await fetchEvents()
+  })
 })
 
 onUnmounted(() => {
   if (pollInterval) clearInterval(pollInterval)
+  if (unregisterReload) unregisterReload()
 })
 </script>
 

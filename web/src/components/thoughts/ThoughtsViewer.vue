@@ -1,7 +1,7 @@
 <script setup>
 import { ref, onMounted, onUnmounted, watch } from 'vue'
 import { thoughts as thoughtsApi } from '../../api/client.js'
-import { appState } from '../../stores/appState.js'
+import { appState, registerReload } from '../../stores/appState.js'
 import ThoughtCard from './ThoughtCard.vue'
 
 const thoughts = ref([])
@@ -37,13 +37,22 @@ watch(
   }
 )
 
+let unregisterReload = null
+
 onMounted(() => {
   setTimeout(loadThoughts, 3000)
   refreshInterval = setInterval(loadThoughts, 30000)
+
+  // Register for persona change reloads
+  unregisterReload = registerReload('thoughts', async () => {
+    thoughts.value = []
+    await loadThoughts()
+  })
 })
 
 onUnmounted(() => {
   if (refreshInterval) clearInterval(refreshInterval)
+  if (unregisterReload) unregisterReload()
 })
 </script>
 

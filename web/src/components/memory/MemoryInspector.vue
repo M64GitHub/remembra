@@ -1,7 +1,7 @@
 <script setup>
-import { ref, onMounted, computed, watch } from 'vue'
+import { ref, onMounted, onUnmounted, computed, watch } from 'vue'
 import { memories as memoriesApi } from '../../api/client.js'
-import { appState } from '../../stores/appState.js'
+import { appState, registerReload } from '../../stores/appState.js'
 import MemoryCard from './MemoryCard.vue'
 
 const memories = ref([])
@@ -104,8 +104,20 @@ watch(
   }
 )
 
+let unregisterReload = null
+
 onMounted(() => {
   setTimeout(loadMemories, 2500)
+
+  // Register for persona change reloads
+  unregisterReload = registerReload('memories', async () => {
+    memories.value = []
+    await loadMemories()
+  })
+})
+
+onUnmounted(() => {
+  if (unregisterReload) unregisterReload()
 })
 </script>
 

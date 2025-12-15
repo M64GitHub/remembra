@@ -18,6 +18,7 @@ pub const SCHEMA =
     \\
     \\CREATE TABLE IF NOT EXISTS messages (
     \\    id            INTEGER PRIMARY KEY AUTOINCREMENT,
+    \\    persona_id    INTEGER NOT NULL,
     \\    role          INTEGER NOT NULL,
     \\    content       TEXT NOT NULL,
     \\    created_at_ms INTEGER NOT NULL
@@ -25,6 +26,7 @@ pub const SCHEMA =
     \\
     \\CREATE TABLE IF NOT EXISTS memory_items (
     \\    id            INTEGER PRIMARY KEY AUTOINCREMENT,
+    \\    persona_id    INTEGER NOT NULL,
     \\    kind          INTEGER NOT NULL,
     \\    subject       TEXT NOT NULL,
     \\    predicate     TEXT NOT NULL,
@@ -37,13 +39,16 @@ pub const SCHEMA =
     \\
     \\CREATE TABLE IF NOT EXISTS identity_entries (
     \\    id            INTEGER PRIMARY KEY AUTOINCREMENT,
-    \\    key           TEXT NOT NULL UNIQUE,
+    \\    persona_id    INTEGER NOT NULL,
+    \\    key           TEXT NOT NULL,
     \\    value         TEXT NOT NULL,
-    \\    created_at_ms INTEGER NOT NULL
+    \\    created_at_ms INTEGER NOT NULL,
+    \\    UNIQUE(persona_id, key)
     \\);
     \\
     \\CREATE TABLE IF NOT EXISTS events (
     \\    id            INTEGER PRIMARY KEY AUTOINCREMENT,
+    \\    persona_id    INTEGER NOT NULL,
     \\    kind          INTEGER NOT NULL,
     \\    timestamp_ms  INTEGER NOT NULL,
     \\    subject       TEXT NOT NULL,
@@ -51,16 +56,16 @@ pub const SCHEMA =
     \\    session_id    TEXT
     \\);
     \\
-    \\CREATE INDEX IF NOT EXISTS idx_messages_created
-    \\    ON messages(created_at_ms);
+    \\CREATE INDEX IF NOT EXISTS idx_messages_persona
+    \\    ON messages(persona_id, id);
     \\CREATE INDEX IF NOT EXISTS idx_mem_active
-    \\    ON memory_items(is_active, subject, predicate);
+    \\    ON memory_items(persona_id, is_active, subject, predicate);
     \\CREATE INDEX IF NOT EXISTS idx_mem_updated
-    \\    ON memory_items(updated_at_ms);
+    \\    ON memory_items(persona_id, updated_at_ms);
     \\CREATE INDEX IF NOT EXISTS idx_events_time
-    \\    ON events(timestamp_ms);
+    \\    ON events(persona_id, timestamp_ms);
     \\CREATE INDEX IF NOT EXISTS idx_events_kind
-    \\    ON events(kind);
+    \\    ON events(persona_id, kind);
     \\
     \\CREATE TABLE IF NOT EXISTS provider_profiles (
     \\    id            INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -227,6 +232,7 @@ pub const MemoryStoreSqlite = struct {
     pub fn insertMessage(
         self: *MemoryStoreSqlite,
         allocator: std.mem.Allocator,
+        persona_id: i64,
         role: Types.Role,
         content: []const u8,
     ) !void {
@@ -234,14 +240,15 @@ pub const MemoryStoreSqlite = struct {
         const now = self.nowMs();
 
         const stmt = try self.db.prepare(
-            "INSERT INTO messages(role, content, created_at_ms) " ++
-                "VALUES(?, ?, ?);",
+            "INSERT INTO messages(persona_id, role, content, created_at_ms)" ++
+                " VALUES(?, ?, ?, ?);",
         );
         defer sqlite.finalize(stmt);
 
-        sqlite.bindInt(stmt, 1, @intFromEnum(role));
-        sqlite.bindText(stmt, 2, content);
-        sqlite.bindInt64(stmt, 3, now);
+        sqlite.bindInt64(stmt, 1, persona_id);
+        sqlite.bindInt(stmt, 2, @intFromEnum(role));
+        sqlite.bindText(stmt, 3, content);
+        sqlite.bindInt64(stmt, 4, now);
 
         if (sqlite.step(stmt) != c.SQLITE_DONE) {
             return error.SqliteStepFailed;
@@ -255,15 +262,17 @@ pub const MemoryStoreSqlite = struct {
     pub fn loadRecentMessages(
         self: *MemoryStoreSqlite,
         allocator: std.mem.Allocator,
+        persona_id: i64,
         max_count: usize,
     ) ![]Types.Message {
         const stmt = try self.db.prepare(
             "SELECT role, content, created_at_ms FROM messages " ++
-                "ORDER BY id DESC LIMIT ?;",
+                "WHERE persona_id=? ORDER BY id DESC LIMIT ?;",
         );
         defer sqlite.finalize(stmt);
 
-        sqlite.bindInt(stmt, 1, @intCast(max_count));
+        sqlite.bindInt64(stmt, 1, persona_id);
+        sqlite.bindInt(stmt, 2, @intCast(max_count));
 
         var tmp: std.ArrayList(Types.Message) = .empty;
         errdefer {
@@ -290,12 +299,15 @@ pub const MemoryStoreSqlite = struct {
     pub fn loadAllMessages(
         self: *MemoryStoreSqlite,
         allocator: std.mem.Allocator,
+        persona_id: i64,
     ) ![]Types.Message {
         const stmt = try self.db.prepare(
             "SELECT role, content, created_at_ms FROM messages " ++
-                "ORDER BY id ASC;",
+                "WHERE persona_id=? ORDER BY id ASC;",
         );
         defer sqlite.finalize(stmt);
+
+        sqlite.bindInt64(stmt, 1, persona_id);
 
         var out: std.ArrayList(Types.Message) = .empty;
         errdefer {
@@ -321,15 +333,17 @@ pub const MemoryStoreSqlite = struct {
     pub fn loadMessagesSince(
         self: *MemoryStoreSqlite,
         allocator: std.mem.Allocator,
+        persona_id: i64,
         since_ms: i64,
     ) ![]Types.Message {
         const stmt = try self.db.prepare(
             "SELECT role, content, created_at_ms FROM messages " ++
-                "WHERE created_at_ms >= ? ORDER BY id ASC;",
+                "WHERE persona_id=? AND created_at_ms >= ? ORDER BY id ASC;",
         );
         defer sqlite.finalize(stmt);
 
-        sqlite.bindInt64(stmt, 1, since_ms);
+        sqlite.bindInt64(stmt, 1, persona_id);
+        sqlite.bindInt64(stmt, 2, since_ms);
 
         var out: std.ArrayList(Types.Message) = .empty;
         errdefer {
@@ -352,9 +366,9 @@ pub const MemoryStoreSqlite = struct {
         return try out.toOwnedSlice(allocator);
     }
 
-    pub fn countMessagesSinceCutoff(self: *MemoryStoreSqlite) usize {
-        const total = self.countMessages() catch 0;
-        const cutoff = self.getEpisodeCutoffIndex();
+    pub fn countMessagesSinceCutoff(self: *MemoryStoreSqlite, persona_id: i64) usize {
+        const total = self.countMessages(persona_id) catch 0;
+        const cutoff = self.getEpisodeCutoffIndex(persona_id);
         if (cutoff > total) return 0;
         return total - cutoff;
     }
@@ -362,6 +376,7 @@ pub const MemoryStoreSqlite = struct {
     pub fn loadMessagesPage(
         self: *MemoryStoreSqlite,
         allocator: std.mem.Allocator,
+        persona_id: i64,
         limit: usize,
         before_id: ?i64,
     ) ![]MessageRow {
@@ -374,12 +389,13 @@ pub const MemoryStoreSqlite = struct {
         if (before_id) |bid| {
             const stmt = try self.db.prepare(
                 "SELECT id, role, content, created_at_ms FROM messages " ++
-                    "WHERE id < ? ORDER BY id DESC LIMIT ?;",
+                    "WHERE persona_id=? AND id < ? ORDER BY id DESC LIMIT ?;",
             );
             defer sqlite.finalize(stmt);
 
-            sqlite.bindInt64(stmt, 1, bid);
-            sqlite.bindInt(stmt, 2, @intCast(limit));
+            sqlite.bindInt64(stmt, 1, persona_id);
+            sqlite.bindInt64(stmt, 2, bid);
+            sqlite.bindInt(stmt, 3, @intCast(limit));
 
             while (sqlite.step(stmt) == c.SQLITE_ROW) {
                 try out.append(allocator, .{
@@ -392,11 +408,12 @@ pub const MemoryStoreSqlite = struct {
         } else {
             const stmt = try self.db.prepare(
                 "SELECT id, role, content, created_at_ms FROM messages " ++
-                    "ORDER BY id DESC LIMIT ?;",
+                    "WHERE persona_id=? ORDER BY id DESC LIMIT ?;",
             );
             defer sqlite.finalize(stmt);
 
-            sqlite.bindInt(stmt, 1, @intCast(limit));
+            sqlite.bindInt64(stmt, 1, persona_id);
+            sqlite.bindInt(stmt, 2, @intCast(limit));
 
             while (sqlite.step(stmt) == c.SQLITE_ROW) {
                 try out.append(allocator, .{
@@ -415,18 +432,20 @@ pub const MemoryStoreSqlite = struct {
     pub fn loadMessagesSinceCutoff(
         self: *MemoryStoreSqlite,
         allocator: std.mem.Allocator,
+        persona_id: i64,
         max_count: usize,
     ) ![]Types.Message {
-        const cutoff = self.getEpisodeCutoffIndex();
+        const cutoff = self.getEpisodeCutoffIndex(persona_id);
 
         const stmt = try self.db.prepare(
             "SELECT role, content, created_at_ms FROM messages " ++
-                "ORDER BY id ASC LIMIT ? OFFSET ?;",
+                "WHERE persona_id=? ORDER BY id ASC LIMIT ? OFFSET ?;",
         );
         defer sqlite.finalize(stmt);
 
-        sqlite.bindInt(stmt, 1, @intCast(max_count));
-        sqlite.bindInt(stmt, 2, @intCast(cutoff));
+        sqlite.bindInt64(stmt, 1, persona_id);
+        sqlite.bindInt(stmt, 2, @intCast(max_count));
+        sqlite.bindInt(stmt, 3, @intCast(cutoff));
 
         var out: std.ArrayList(Types.Message) = .empty;
         errdefer {
@@ -449,19 +468,32 @@ pub const MemoryStoreSqlite = struct {
         return try out.toOwnedSlice(allocator);
     }
 
-    pub fn getEpisodeCutoffIndex(self: *MemoryStoreSqlite) usize {
-        const v = self.getMetaI64("episode_cutoff_index") catch 0;
+    pub fn getEpisodeCutoffIndex(self: *MemoryStoreSqlite, persona_id: i64) usize {
+        var buf: [64]u8 = undefined;
+        const key = std.fmt.bufPrint(
+            &buf,
+            "episode_cutoff_index_{d}",
+            .{persona_id},
+        ) catch return 0;
+        const v = self.getMetaI64(key) catch 0;
         return @intCast(@max(v, 0));
     }
 
-    pub fn advanceEpisodeCutoffToEnd(self: *MemoryStoreSqlite) void {
-        const count = self.countMessages() catch 0;
-        self.setMetaI64("episode_cutoff_index", @intCast(count)) catch {};
+    pub fn advanceEpisodeCutoffToEnd(self: *MemoryStoreSqlite, persona_id: i64) void {
+        var buf: [64]u8 = undefined;
+        const key = std.fmt.bufPrint(
+            &buf,
+            "episode_cutoff_index_{d}",
+            .{persona_id},
+        ) catch return;
+        const count = self.countMessages(persona_id) catch 0;
+        self.setMetaI64(key, @intCast(count)) catch {};
     }
 
     pub fn addIdentityEntry(
         self: *MemoryStoreSqlite,
         allocator: std.mem.Allocator,
+        persona_id: i64,
         key: []const u8,
         value: []const u8,
     ) !void {
@@ -469,15 +501,16 @@ pub const MemoryStoreSqlite = struct {
         const now = self.nowMs();
 
         const stmt = try self.db.prepare(
-            "INSERT INTO identity_entries(key, value, created_at_ms) " ++
-                "VALUES(?, ?, ?) " ++
-                "ON CONFLICT(key) DO UPDATE SET value=excluded.value;",
+            "INSERT INTO identity_entries(persona_id, key, value, created_at_ms)" ++
+                " VALUES(?, ?, ?, ?) " ++
+                "ON CONFLICT(persona_id, key) DO UPDATE SET value=excluded.value;",
         );
         defer sqlite.finalize(stmt);
 
-        sqlite.bindText(stmt, 1, key);
-        sqlite.bindText(stmt, 2, value);
-        sqlite.bindInt64(stmt, 3, now);
+        sqlite.bindInt64(stmt, 1, persona_id);
+        sqlite.bindText(stmt, 2, key);
+        sqlite.bindText(stmt, 3, value);
+        sqlite.bindInt64(stmt, 4, now);
 
         if (sqlite.step(stmt) != c.SQLITE_DONE) {
             return error.SqliteStepFailed;
@@ -494,19 +527,24 @@ pub const MemoryStoreSqlite = struct {
     pub fn loadIdentityCore(
         self: *MemoryStoreSqlite,
         allocator: std.mem.Allocator,
+        persona_id: i64,
     ) ![]Types.IdentityEntry {
-        return self.loadIdentityCoreWithDefaults(allocator, .{});
+        return self.loadIdentityCoreWithDefaults(allocator, persona_id, .{});
     }
 
     pub fn loadIdentityCoreWithDefaults(
         self: *MemoryStoreSqlite,
         allocator: std.mem.Allocator,
+        persona_id: i64,
         defaults: IdentityDefaults,
     ) ![]Types.IdentityEntry {
         const stmt = try self.db.prepare(
-            "SELECT key, value FROM identity_entries ORDER BY id ASC;",
+            "SELECT key, value FROM identity_entries " ++
+                "WHERE persona_id=? ORDER BY id ASC;",
         );
         defer sqlite.finalize(stmt);
+
+        sqlite.bindInt64(stmt, 1, persona_id);
 
         var out: std.ArrayList(Types.IdentityEntry) = .empty;
         errdefer {
@@ -528,13 +566,14 @@ pub const MemoryStoreSqlite = struct {
         }
 
         if (out.items.len == 0) {
-            try self.addIdentityEntry(allocator, "tone", defaults.tone);
+            try self.addIdentityEntry(allocator, persona_id, "tone", defaults.tone);
             try self.addIdentityEntry(
                 allocator,
+                persona_id,
                 "memory_contract",
                 defaults.memory_contract,
             );
-            return self.loadIdentityCoreWithDefaults(allocator, defaults);
+            return self.loadIdentityCoreWithDefaults(allocator, persona_id, defaults);
         }
 
         return try out.toOwnedSlice(allocator);
@@ -543,6 +582,7 @@ pub const MemoryStoreSqlite = struct {
     pub fn addMemory(
         self: *MemoryStoreSqlite,
         allocator: std.mem.Allocator,
+        persona_id: i64,
         item: Types.MemoryItem,
     ) !i64 {
         _ = allocator;
@@ -550,20 +590,21 @@ pub const MemoryStoreSqlite = struct {
 
         const stmt = try self.db.prepare(
             "INSERT INTO memory_items(" ++
-                "kind, subject, predicate, object, confidence, " ++
+                "persona_id, kind, subject, predicate, object, confidence, " ++
                 "is_active, created_at_ms, updated_at_ms" ++
-                ") VALUES(?, ?, ?, ?, ?, ?, ?, ?);",
+                ") VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?);",
         );
         defer sqlite.finalize(stmt);
 
-        sqlite.bindInt(stmt, 1, @intFromEnum(item.kind));
-        sqlite.bindText(stmt, 2, item.subject);
-        sqlite.bindText(stmt, 3, item.predicate);
-        sqlite.bindText(stmt, 4, item.object);
-        sqlite.bindDouble(stmt, 5, item.confidence);
-        sqlite.bindInt(stmt, 6, if (item.is_active) 1 else 0);
-        sqlite.bindInt64(stmt, 7, now);
+        sqlite.bindInt64(stmt, 1, persona_id);
+        sqlite.bindInt(stmt, 2, @intFromEnum(item.kind));
+        sqlite.bindText(stmt, 3, item.subject);
+        sqlite.bindText(stmt, 4, item.predicate);
+        sqlite.bindText(stmt, 5, item.object);
+        sqlite.bindDouble(stmt, 6, item.confidence);
+        sqlite.bindInt(stmt, 7, if (item.is_active) 1 else 0);
         sqlite.bindInt64(stmt, 8, now);
+        sqlite.bindInt64(stmt, 9, now);
 
         if (sqlite.step(stmt) != c.SQLITE_DONE) {
             return error.SqliteStepFailed;
@@ -575,11 +616,12 @@ pub const MemoryStoreSqlite = struct {
     pub fn addMemoryGoverned(
         self: *MemoryStoreSqlite,
         allocator: std.mem.Allocator,
+        persona_id: i64,
         policy: MemoryPolicy,
         item: Types.MemoryItem,
     ) !i64 {
         _ = policy;
-        const id = try self.addMemory(allocator, item);
+        const id = try self.addMemory(allocator, persona_id, item);
 
         if (std.mem.eql(u8, item.predicate, "says")) return id;
         if (std.mem.eql(u8, item.subject, "episode")) return id;
@@ -587,16 +629,17 @@ pub const MemoryStoreSqlite = struct {
         const now = self.nowMs();
         const stmt = try self.db.prepare(
             "UPDATE memory_items SET is_active=0, updated_at_ms=? " ++
-                "WHERE is_active=1 AND kind=? AND subject=? " ++
-                "AND predicate=? AND id<>?;",
+                "WHERE persona_id=? AND is_active=1 AND kind=? " ++
+                "AND subject=? AND predicate=? AND id<>?;",
         );
         defer sqlite.finalize(stmt);
 
         sqlite.bindInt64(stmt, 1, now);
-        sqlite.bindInt(stmt, 2, @intFromEnum(item.kind));
-        sqlite.bindText(stmt, 3, item.subject);
-        sqlite.bindText(stmt, 4, item.predicate);
-        sqlite.bindInt64(stmt, 5, id);
+        sqlite.bindInt64(stmt, 2, persona_id);
+        sqlite.bindInt(stmt, 3, @intFromEnum(item.kind));
+        sqlite.bindText(stmt, 4, item.subject);
+        sqlite.bindText(stmt, 5, item.predicate);
+        sqlite.bindInt64(stmt, 6, id);
 
         _ = sqlite.step(stmt);
 
@@ -606,17 +649,19 @@ pub const MemoryStoreSqlite = struct {
     pub fn loadMemoryItems(
         self: *MemoryStoreSqlite,
         allocator: std.mem.Allocator,
+        persona_id: i64,
         max_count: usize,
     ) ![]Types.MemoryItem {
         const stmt = try self.db.prepare(
             "SELECT id, kind, subject, predicate, object, confidence, " ++
                 "is_active, created_at_ms, updated_at_ms " ++
-                "FROM memory_items WHERE is_active=1 " ++
+                "FROM memory_items WHERE persona_id=? AND is_active=1 " ++
                 "ORDER BY updated_at_ms DESC LIMIT ?;",
         );
         defer sqlite.finalize(stmt);
 
-        sqlite.bindInt(stmt, 1, @intCast(max_count));
+        sqlite.bindInt64(stmt, 1, persona_id);
+        sqlite.bindInt(stmt, 2, @intCast(max_count));
 
         var out: std.ArrayList(Types.MemoryItem) = .empty;
         errdefer {
@@ -638,13 +683,16 @@ pub const MemoryStoreSqlite = struct {
     pub fn loadAllMemoryItems(
         self: *MemoryStoreSqlite,
         allocator: std.mem.Allocator,
+        persona_id: i64,
     ) ![]Types.MemoryItem {
         const stmt = try self.db.prepare(
             "SELECT id, kind, subject, predicate, object, confidence, " ++
                 "is_active, created_at_ms, updated_at_ms " ++
-                "FROM memory_items ORDER BY id ASC;",
+                "FROM memory_items WHERE persona_id=? ORDER BY id ASC;",
         );
         defer sqlite.finalize(stmt);
+
+        sqlite.bindInt64(stmt, 1, persona_id);
 
         var out: std.ArrayList(Types.MemoryItem) = .empty;
         errdefer {
@@ -666,13 +714,15 @@ pub const MemoryStoreSqlite = struct {
     pub fn loadMemoryCandidates(
         self: *MemoryStoreSqlite,
         allocator: std.mem.Allocator,
+        persona_id: i64,
         max_count: usize,
     ) ![]Types.MemoryItem {
-        return self.loadMemoryItems(allocator, max_count);
+        return self.loadMemoryItems(allocator, persona_id, max_count);
     }
 
     pub fn hasActiveMemoryExact(
         self: *MemoryStoreSqlite,
+        persona_id: i64,
         kind: Types.MemoryKind,
         subject: []const u8,
         predicate: []const u8,
@@ -680,34 +730,38 @@ pub const MemoryStoreSqlite = struct {
     ) bool {
         const stmt = self.db.prepare(
             "SELECT 1 FROM memory_items " ++
-                "WHERE is_active=1 AND kind=? AND subject=? " ++
+                "WHERE persona_id=? AND is_active=1 AND kind=? AND subject=? " ++
                 "AND predicate=? AND object=? LIMIT 1;",
         ) catch return false;
         defer sqlite.finalize(stmt);
 
-        sqlite.bindInt(stmt, 1, @intFromEnum(kind));
-        sqlite.bindText(stmt, 2, subject);
-        sqlite.bindText(stmt, 3, predicate);
-        sqlite.bindText(stmt, 4, object);
+        sqlite.bindInt64(stmt, 1, persona_id);
+        sqlite.bindInt(stmt, 2, @intFromEnum(kind));
+        sqlite.bindText(stmt, 3, subject);
+        sqlite.bindText(stmt, 4, predicate);
+        sqlite.bindText(stmt, 5, object);
 
         return sqlite.step(stmt) == c.SQLITE_ROW;
     }
 
     pub fn lastActiveMemoryTimeForKey(
         self: *MemoryStoreSqlite,
+        persona_id: i64,
         kind: Types.MemoryKind,
         subject: []const u8,
         predicate: []const u8,
     ) ?i64 {
         const stmt = self.db.prepare(
             "SELECT MAX(updated_at_ms) FROM memory_items " ++
-                "WHERE is_active=1 AND kind=? AND subject=? AND predicate=?;",
+                "WHERE persona_id=? AND is_active=1 AND kind=? " ++
+                "AND subject=? AND predicate=?;",
         ) catch return null;
         defer sqlite.finalize(stmt);
 
-        sqlite.bindInt(stmt, 1, @intFromEnum(kind));
-        sqlite.bindText(stmt, 2, subject);
-        sqlite.bindText(stmt, 3, predicate);
+        sqlite.bindInt64(stmt, 1, persona_id);
+        sqlite.bindInt(stmt, 2, @intFromEnum(kind));
+        sqlite.bindText(stmt, 3, subject);
+        sqlite.bindText(stmt, 4, predicate);
 
         if (sqlite.step(stmt) != c.SQLITE_ROW) return null;
         const val = sqlite.columnInt64(stmt, 0);
@@ -717,18 +771,20 @@ pub const MemoryStoreSqlite = struct {
 
     pub fn latestActiveObjectByKey(
         self: *MemoryStoreSqlite,
+        persona_id: i64,
         subject: []const u8,
         predicate: []const u8,
     ) ?[]const u8 {
         const stmt = self.db.prepare(
             "SELECT object FROM memory_items " ++
-                "WHERE is_active=1 AND subject=? AND predicate=? " ++
+                "WHERE persona_id=? AND is_active=1 AND subject=? AND predicate=? " ++
                 "ORDER BY updated_at_ms DESC LIMIT 1;",
         ) catch return null;
         defer sqlite.finalize(stmt);
 
-        sqlite.bindText(stmt, 1, subject);
-        sqlite.bindText(stmt, 2, predicate);
+        sqlite.bindInt64(stmt, 1, persona_id);
+        sqlite.bindText(stmt, 2, subject);
+        sqlite.bindText(stmt, 3, predicate);
 
         if (sqlite.step(stmt) != c.SQLITE_ROW) return null;
         const obj = sqlite.columnText(stmt, 0);
@@ -741,14 +797,17 @@ pub const MemoryStoreSqlite = struct {
 
     pub fn decayMemory(
         self: *MemoryStoreSqlite,
+        persona_id: i64,
         policy: MemoryPolicy,
         now_ms: i64,
     ) void {
         const sel_stmt = self.db.prepare(
             "SELECT id, confidence, updated_at_ms FROM memory_items " ++
-                "WHERE is_active=1;",
+                "WHERE persona_id=? AND is_active=1;",
         ) catch return;
         defer sqlite.finalize(sel_stmt);
+
+        sqlite.bindInt64(sel_stmt, 1, persona_id);
 
         const upd_stmt = self.db.prepare(
             "UPDATE memory_items " ++
@@ -780,32 +839,48 @@ pub const MemoryStoreSqlite = struct {
         }
     }
 
-    pub fn countMessages(self: *MemoryStoreSqlite) !usize {
-        return @intCast(try self.scalarI64("SELECT COUNT(*) FROM messages;"));
+    pub fn countMessages(self: *MemoryStoreSqlite, persona_id: i64) !usize {
+        const stmt = try self.db.prepare(
+            "SELECT COUNT(*) FROM messages WHERE persona_id=?;",
+        );
+        defer sqlite.finalize(stmt);
+        sqlite.bindInt64(stmt, 1, persona_id);
+        if (sqlite.step(stmt) != c.SQLITE_ROW) return error.NoRow;
+        return @intCast(sqlite.columnInt64(stmt, 0));
     }
 
-    pub fn countMemories(self: *MemoryStoreSqlite) !usize {
-        return @intCast(try self.scalarI64(
-            "SELECT COUNT(*) FROM memory_items;",
-        ));
+    pub fn countMemories(self: *MemoryStoreSqlite, persona_id: i64) !usize {
+        const stmt = try self.db.prepare(
+            "SELECT COUNT(*) FROM memory_items WHERE persona_id=?;",
+        );
+        defer sqlite.finalize(stmt);
+        sqlite.bindInt64(stmt, 1, persona_id);
+        if (sqlite.step(stmt) != c.SQLITE_ROW) return error.NoRow;
+        return @intCast(sqlite.columnInt64(stmt, 0));
     }
 
-    pub fn countActiveMemories(self: *MemoryStoreSqlite) !usize {
-        return @intCast(try self.scalarI64(
-            "SELECT COUNT(*) FROM memory_items WHERE is_active=1;",
-        ));
+    pub fn countActiveMemories(self: *MemoryStoreSqlite, persona_id: i64) !usize {
+        const stmt = try self.db.prepare(
+            "SELECT COUNT(*) FROM memory_items WHERE persona_id=? AND is_active=1;",
+        );
+        defer sqlite.finalize(stmt);
+        sqlite.bindInt64(stmt, 1, persona_id);
+        if (sqlite.step(stmt) != c.SQLITE_ROW) return error.NoRow;
+        return @intCast(sqlite.columnInt64(stmt, 0));
     }
 
-    pub fn deactivateMemory(self: *MemoryStoreSqlite, id: i64) !void {
+    pub fn deactivateMemory(self: *MemoryStoreSqlite, persona_id: i64, id: i64) !void {
         const now = self.nowMs();
 
         const stmt = try self.db.prepare(
-            "UPDATE memory_items SET is_active=0, updated_at_ms=? WHERE id=?;",
+            "UPDATE memory_items SET is_active=0, updated_at_ms=? " ++
+                "WHERE persona_id=? AND id=?;",
         );
         defer sqlite.finalize(stmt);
 
         sqlite.bindInt64(stmt, 1, now);
-        sqlite.bindInt64(stmt, 2, id);
+        sqlite.bindInt64(stmt, 2, persona_id);
+        sqlite.bindInt64(stmt, 3, id);
 
         if (sqlite.step(stmt) != c.SQLITE_DONE) {
             return error.SqliteStepFailed;
@@ -973,6 +1048,7 @@ pub const MemoryStoreSqlite = struct {
 
     pub fn insertEvent(
         self: *MemoryStoreSqlite,
+        persona_id: i64,
         kind: EventKind,
         subject: []const u8,
         details: []const u8,
@@ -981,19 +1057,20 @@ pub const MemoryStoreSqlite = struct {
         const now = self.nowMs();
 
         const stmt = try self.db.prepare(
-            "INSERT INTO events(kind, timestamp_ms, subject, details, " ++
-                "session_id) VALUES(?, ?, ?, ?, ?);",
+            "INSERT INTO events(persona_id, kind, timestamp_ms, subject, " ++
+                "details, session_id) VALUES(?, ?, ?, ?, ?, ?);",
         );
         defer sqlite.finalize(stmt);
 
-        sqlite.bindInt(stmt, 1, @intFromEnum(kind));
-        sqlite.bindInt64(stmt, 2, now);
-        sqlite.bindText(stmt, 3, subject);
-        sqlite.bindText(stmt, 4, details);
+        sqlite.bindInt64(stmt, 1, persona_id);
+        sqlite.bindInt(stmt, 2, @intFromEnum(kind));
+        sqlite.bindInt64(stmt, 3, now);
+        sqlite.bindText(stmt, 4, subject);
+        sqlite.bindText(stmt, 5, details);
         if (session_id) |sid| {
-            sqlite.bindText(stmt, 5, sid);
+            sqlite.bindText(stmt, 6, sid);
         } else {
-            sqlite.bindNull(stmt, 5);
+            sqlite.bindNull(stmt, 6);
         }
 
         if (sqlite.step(stmt) != c.SQLITE_DONE) {
@@ -1006,6 +1083,7 @@ pub const MemoryStoreSqlite = struct {
     pub fn queryEvents(
         self: *MemoryStoreSqlite,
         allocator: std.mem.Allocator,
+        persona_id: i64,
         since_ms: ?i64,
         kind_filter: ?EventKind,
         limit: usize,
@@ -1023,14 +1101,15 @@ pub const MemoryStoreSqlite = struct {
         if (since_ms != null and kind_filter != null) {
             const stmt = try self.db.prepare(
                 "SELECT id, kind, timestamp_ms, subject, details, session_id " ++
-                    "FROM events WHERE timestamp_ms >= ? AND kind = ? " ++
-                    "ORDER BY timestamp_ms DESC LIMIT ?;",
+                    "FROM events WHERE persona_id=? AND timestamp_ms >= ? " ++
+                    "AND kind = ? ORDER BY timestamp_ms DESC LIMIT ?;",
             );
             defer sqlite.finalize(stmt);
 
-            sqlite.bindInt64(stmt, 1, since_ms.?);
-            sqlite.bindInt(stmt, 2, @intFromEnum(kind_filter.?));
-            sqlite.bindInt(stmt, 3, @intCast(limit));
+            sqlite.bindInt64(stmt, 1, persona_id);
+            sqlite.bindInt64(stmt, 2, since_ms.?);
+            sqlite.bindInt(stmt, 3, @intFromEnum(kind_filter.?));
+            sqlite.bindInt(stmt, 4, @intCast(limit));
 
             while (sqlite.step(stmt) == c.SQLITE_ROW) {
                 try out.append(allocator, try self.readEventRow(allocator, stmt));
@@ -1038,13 +1117,14 @@ pub const MemoryStoreSqlite = struct {
         } else if (since_ms != null) {
             const stmt = try self.db.prepare(
                 "SELECT id, kind, timestamp_ms, subject, details, session_id " ++
-                    "FROM events WHERE timestamp_ms >= ? " ++
+                    "FROM events WHERE persona_id=? AND timestamp_ms >= ? " ++
                     "ORDER BY timestamp_ms DESC LIMIT ?;",
             );
             defer sqlite.finalize(stmt);
 
-            sqlite.bindInt64(stmt, 1, since_ms.?);
-            sqlite.bindInt(stmt, 2, @intCast(limit));
+            sqlite.bindInt64(stmt, 1, persona_id);
+            sqlite.bindInt64(stmt, 2, since_ms.?);
+            sqlite.bindInt(stmt, 3, @intCast(limit));
 
             while (sqlite.step(stmt) == c.SQLITE_ROW) {
                 try out.append(allocator, try self.readEventRow(allocator, stmt));
@@ -1052,13 +1132,14 @@ pub const MemoryStoreSqlite = struct {
         } else if (kind_filter != null) {
             const stmt = try self.db.prepare(
                 "SELECT id, kind, timestamp_ms, subject, details, session_id " ++
-                    "FROM events WHERE kind = ? " ++
+                    "FROM events WHERE persona_id=? AND kind = ? " ++
                     "ORDER BY timestamp_ms DESC LIMIT ?;",
             );
             defer sqlite.finalize(stmt);
 
-            sqlite.bindInt(stmt, 1, @intFromEnum(kind_filter.?));
-            sqlite.bindInt(stmt, 2, @intCast(limit));
+            sqlite.bindInt64(stmt, 1, persona_id);
+            sqlite.bindInt(stmt, 2, @intFromEnum(kind_filter.?));
+            sqlite.bindInt(stmt, 3, @intCast(limit));
 
             while (sqlite.step(stmt) == c.SQLITE_ROW) {
                 try out.append(allocator, try self.readEventRow(allocator, stmt));
@@ -1066,11 +1147,13 @@ pub const MemoryStoreSqlite = struct {
         } else {
             const stmt = try self.db.prepare(
                 "SELECT id, kind, timestamp_ms, subject, details, session_id " ++
-                    "FROM events ORDER BY timestamp_ms DESC LIMIT ?;",
+                    "FROM events WHERE persona_id=? " ++
+                    "ORDER BY timestamp_ms DESC LIMIT ?;",
             );
             defer sqlite.finalize(stmt);
 
-            sqlite.bindInt(stmt, 1, @intCast(limit));
+            sqlite.bindInt64(stmt, 1, persona_id);
+            sqlite.bindInt(stmt, 2, @intCast(limit));
 
             while (sqlite.step(stmt) == c.SQLITE_ROW) {
                 try out.append(allocator, try self.readEventRow(allocator, stmt));
@@ -1102,8 +1185,14 @@ pub const MemoryStoreSqlite = struct {
         };
     }
 
-    pub fn countEvents(self: *MemoryStoreSqlite) !usize {
-        return @intCast(try self.scalarI64("SELECT COUNT(*) FROM events;"));
+    pub fn countEvents(self: *MemoryStoreSqlite, persona_id: i64) !usize {
+        const stmt = try self.db.prepare(
+            "SELECT COUNT(*) FROM events WHERE persona_id=?;",
+        );
+        defer sqlite.finalize(stmt);
+        sqlite.bindInt64(stmt, 1, persona_id);
+        if (sqlite.step(stmt) != c.SQLITE_ROW) return error.NoRow;
+        return @intCast(sqlite.columnInt64(stmt, 0));
     }
 
     pub fn createProviderProfile(
