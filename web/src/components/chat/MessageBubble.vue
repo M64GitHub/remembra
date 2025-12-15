@@ -1,5 +1,6 @@
 <script setup>
 import { computed, ref } from 'vue'
+import { appState } from '../../stores/appState.js'
 
 const props = defineProps({
   message: {
@@ -73,7 +74,7 @@ async function copyContent() {
     @click="showTimestamp = !showTimestamp"
   >
     <div class="message-header" v-if="!isUser">
-      <span class="message-role">{{ isSystem ? 'SYSTEM' : 'REMEMBRA' }}</span>
+      <span class="message-role">{{ isSystem ? 'SYSTEM' : appState.activeAiName }}</span>
     </div>
 
     <div class="message-content">

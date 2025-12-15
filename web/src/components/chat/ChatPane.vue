@@ -1,7 +1,7 @@
 <script setup>
 import { ref, onMounted, onUnmounted, nextTick } from 'vue'
 import { chat, command } from '../../api/client.js'
-import { appState, registerReload } from '../../stores/appState.js'
+import { appState, registerReload, reloadAllData } from '../../stores/appState.js'
 import MessageList from './MessageList.vue'
 import ChatInput from './ChatInput.vue'
 
@@ -52,6 +52,7 @@ async function sendMessage(text) {
     isSending.value = true
     appState.isChatBusy = true
     error.value = null
+    let needsReload = false
 
     try {
       const data = await command.execute(text)
@@ -66,12 +67,22 @@ async function sendMessage(text) {
           created_at_ms: Date.now(),
         })
       }
+
+      // Mark for reload after /db clear
+      if (text.trim() === '/db clear') {
+        needsReload = true
+      }
     } catch (e) {
       error.value = e.message
       console.error('Command failed:', e)
     } finally {
       isSending.value = false
       appState.isChatBusy = false
+    }
+
+    // Trigger reload AFTER flags are cleared
+    if (needsReload) {
+      await reloadAllData()
     }
     return
   }

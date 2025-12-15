@@ -1,7 +1,7 @@
 <script setup>
-import { ref, onMounted, watch } from 'vue'
+import { ref, onMounted, onUnmounted } from 'vue'
 import { profiles as profilesApi } from '../../api/client.js'
-import { appState, reloadAllData } from '../../stores/appState.js'
+import { appState, reloadAllData, registerReload } from '../../stores/appState.js'
 import ProviderCard from './ProviderCard.vue'
 import PersonaCard from './PersonaCard.vue'
 import PersonaEditorModal from './PersonaEditorModal.vue'
@@ -136,8 +136,21 @@ async function savePersona(personaData) {
   }
 }
 
+let unregisterReload = null
+
 onMounted(() => {
   setTimeout(loadProfiles, 3500)
+
+  // Register for reload after /db clear
+  unregisterReload = registerReload('profiles', async () => {
+    providers.value = []
+    personas.value = []
+    await loadProfiles()
+  })
+})
+
+onUnmounted(() => {
+  if (unregisterReload) unregisterReload()
 })
 </script>
 

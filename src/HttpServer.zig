@@ -288,7 +288,9 @@ fn handleCommand(
             "  /mem add <text>    - Store a memory note\\n" ++
             "  /mem decay <hours> - Simulate memory decay\\n" ++
             "  /time advance <h>  - Advance simulated time\\n" ++
-            "  /db stats          - Show database statistics\"}"
+            "  /db stats          - Show database statistics\\n" ++
+            "  /db init           - Initialize database schema\\n" ++
+            "  /db clear          - Clear all database data\"}"
         );
         return;
     }
@@ -377,6 +379,57 @@ fn handleCommand(
             .{hours},
         ) catch "{\"status\":\"ok\",\"output\":\"Memory decayed.\"}";
         try respondJson(request, output);
+        return;
+    }
+
+    // Handle /db init
+    if (std.mem.eql(u8, cmd, "/db init")) {
+        _ = app.store.insertEvent(
+            pid,
+            .command_executed,
+            "user",
+            cmd,
+            null,
+        ) catch {};
+        app.store.ensureSchema() catch {
+            try respondJson(
+                request,
+                "{\"status\":\"error\",\"output\":\"Failed to init schema\"}",
+            );
+            return;
+        };
+        try respondJson(
+            request,
+            "{\"status\":\"ok\",\"output\":\"Schema ensured.\"}",
+        );
+        return;
+    }
+
+    // Handle /db clear
+    if (std.mem.eql(u8, cmd, "/db clear")) {
+        _ = app.store.insertEvent(
+            pid,
+            .command_executed,
+            "user",
+            cmd,
+            null,
+        ) catch {};
+        app.store.clearDb() catch {
+            try respondJson(
+                request,
+                "{\"status\":\"error\",\"output\":\"Failed to clear db\"}",
+            );
+            return;
+        };
+
+        // Reload in-memory state with new defaults
+        app.reloadActiveProvider(allocator) catch {};
+        app.reloadActivePersona(allocator) catch {};
+
+        try respondJson(
+            request,
+            "{\"status\":\"ok\",\"output\":\"Database cleared.\"}",
+        );
         return;
     }
 

@@ -1,0 +1,19 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">
+  <!-- Thin circular boundary - context window, governed memory space -->
+  <circle cx="50" cy="50" r="45" fill="none" stroke="#667eea" stroke-width="2.5"/>
+
+  <!-- Dominant "r" on left - active reasoning, present cognitive state -->
+  <!-- Stem -->
+  <rect x="22" y="38" width="6" height="28" rx="1" fill="#667eea"/>
+  <!-- Shoulder curve -->
+  <path d="M28 44 Q28 38 34 38 Q42 38 42 46" stroke="#667eea" stroke-width="5" fill="none" stroke-linecap="round"/>
+
+  <!-- Smaller mirrored "r" on right - reflection, memory, observing layer -->
+  <!-- Vertically flipped and scaled down (0.6x) -->
+  <g transform="translate(78, 62) scale(-0.6, -0.6)">
+    <!-- Stem -->
+    <rect x="0" y="0" width="5" height="24" rx="1" fill="#667eea"/>
+    <!-- Shoulder curve -->
+    <path d="M5 5 Q5 0 10 0 Q17 0 17 7" stroke="#667eea" stroke-width="4" fill="none" stroke-linecap="round"/>
+  </g>
+</svg>
