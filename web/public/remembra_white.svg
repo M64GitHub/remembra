@@ -1,6 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">
   <!-- Thin circular boundary - context window, governed memory space -->
-  <circle cx="50" cy="50" r="45" fill="none" stroke="#f0f0f0" stroke-width="2.0"/>
+  <circle cx="50" cy="50" r="45" fill="none" stroke="#f0f0f0" stroke-width="3.0"/>
 
   <!-- Dominant "r" on left - active reasoning, present cognitive state -->
   <!-- Stem -->
@@ -11,7 +11,7 @@
   </g>
   <!-- Smaller mirrored "r" on right - reflection, memory, observing layer -->
   <!-- Horizontally mirrored and scaled down (0.6x) -->
-  <g transform="translate(74, 48) scale(-0.7,  0.7)">
+  <g transform="translate(71, 48) scale(-0.7,  0.7)">
     <!-- Stem -->
     <rect x="0" y="0" width="5" height="24" rx="1" fill="#f0f0f0"/>
     <!-- Shoulder curve -->
