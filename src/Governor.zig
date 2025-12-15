@@ -81,7 +81,10 @@ pub const Governor = struct {
         }
     }
 
-    fn validateProposal(p: ReflectionProposal, min_conf: f32) ValidationError!void {
+    fn validateProposal(
+        p: ReflectionProposal,
+        min_conf: f32,
+    ) ValidationError!void {
         if (p.action != .add) return error.ActionMustBeAdd;
         if (p.confidence < min_conf) return error.ConfidenceTooLow;
 
