@@ -1,6 +1,6 @@
 //! Identity configuration for persona and LLM parameters.
 
-const MemoryPolicy = @import("../MemoryPolicy.zig").MemoryPolicy;
+const MemoryPolicy = @import("MemoryPolicy.zig").MemoryPolicy;
 
 pub const LlmParams = struct {
     temperature: f32,

@@ -1,8 +1,8 @@
 //! System configuration for buffers, limits, and operational params.
 
-const Cli = @import("../Cli.zig").Cli;
-const Retrieval = @import("../Retrieval.zig").Retrieval;
-const IdleThinker = @import("../IdleThinker.zig").IdleThinker;
+const Cli = @import("Cli.zig").Cli;
+const Retrieval = @import("Retrieval.zig").Retrieval;
+const IdleThinker = @import("IdleThinker.zig").IdleThinker;
 
 pub const ConfigSystem = struct {
     input_buffer_size: usize = 4096,
