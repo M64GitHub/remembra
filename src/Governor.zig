@@ -3,6 +3,7 @@ const Types = @import("Types.zig");
 const ReflectionProposal = @import("Reflector.zig").ReflectionProposal;
 const MemoryPolicy = @import("MemoryPolicy.zig").MemoryPolicy;
 const Cli = @import("Cli.zig").Cli;
+const EventSystem = @import("EventSystem.zig").EventSystem;
 
 pub const Governor = struct {
     pub const Params = struct {
@@ -23,6 +24,7 @@ pub const Governor = struct {
         policy: MemoryPolicy,
         proposals: []const ReflectionProposal,
         cli: *Cli,
+        events: *EventSystem,
         params: Params,
     ) !void {
         const now = std.time.milliTimestamp();
@@ -35,6 +37,12 @@ pub const Governor = struct {
                     p.object,
                     @errorName(err),
                 });
+                events.emitFmt(
+                    .governor_blocked,
+                    p.subject,
+                    "validation: {s}",
+                    .{@errorName(err)},
+                );
                 continue;
             };
 
@@ -54,6 +62,7 @@ pub const Governor = struct {
                             @divFloor(params.rate_limit_ms - (now - t), 1000),
                         },
                     );
+                    events.emit(.governor_blocked, p.subject, "rate-limited");
                     continue;
                 }
             }
@@ -65,6 +74,7 @@ pub const Governor = struct {
                 p.object,
             )) {
                 cli.msg(.inf, "[Governor] dedupe: already stored", .{});
+                events.emit(.governor_blocked, p.subject, "duplicate");
                 continue;
             }
 
@@ -78,6 +88,13 @@ pub const Governor = struct {
             });
 
             cli.msg(.ok, "[Governor] accepted -> stored as [mem#{d}]", .{id});
+            events.emitFmt(.governor_accepted, p.subject, "id={d}", .{id});
+            events.emitFmt(
+                .memory_stored,
+                p.subject,
+                "{s}.{s}={s}",
+                .{ p.subject, p.predicate, p.object },
+            );
         }
     }
 

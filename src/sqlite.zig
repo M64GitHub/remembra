@@ -70,6 +70,10 @@ pub fn bindText(stmt: *c.sqlite3_stmt, col: c_int, txt: []const u8) void {
     _ = c.sqlite3_bind_text(stmt, col, txt.ptr, @intCast(txt.len), null);
 }
 
+pub fn bindNull(stmt: *c.sqlite3_stmt, col: c_int) void {
+    _ = c.sqlite3_bind_null(stmt, col);
+}
+
 pub fn columnInt(stmt: *c.sqlite3_stmt, col: c_int) c_int {
     return c.sqlite3_column_int(stmt, col);
 }

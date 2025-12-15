@@ -5,6 +5,7 @@ const version = @import("version.zig");
 const Cli = @import("Cli.zig").Cli;
 const MemoryStoreSqlite = @import("MemoryStoreSqlite.zig").MemoryStoreSqlite;
 const ProviderOllama = @import("ProviderOllama.zig").ProviderOllama;
+const EventSystem = @import("EventSystem.zig").EventSystem;
 const Commands = @import("Commands.zig");
 const ChatEngine = @import("ChatEngine.zig");
 
@@ -16,6 +17,7 @@ pub const App = struct {
     cli: *Cli,
     store: MemoryStoreSqlite,
     provider: ProviderOllama,
+    events: EventSystem,
     conn: ConfigConn,
     sys: ConfigSys,
     ident: ConfigIdent,
@@ -40,14 +42,19 @@ pub const App = struct {
         try store.ensureSchema();
         cli.msg(.ok, "SQLite store: {s}", .{conn.database_path});
 
-        return .{
+        return App{
             .cli = cli,
             .store = store,
             .provider = provider,
+            .events = undefined,
             .conn = conn,
             .sys = sys,
             .ident = ident,
         };
+    }
+
+    pub fn initEvents(self: *App) void {
+        self.events = EventSystem.init(&self.store, null);
     }
 
     pub fn deinit(self: *App, allocator: std.mem.Allocator) void {

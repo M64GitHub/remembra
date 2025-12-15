@@ -5,7 +5,10 @@ const EpisodeCompactor = @import("EpisodeCompactor.zig").EpisodeCompactor;
 const Temporal = @import("Temporal.zig").Temporal;
 const Cli = @import("Cli.zig").Cli;
 const JsonUtils = @import("JsonUtils.zig");
-const LlmParams = @import("ConfigIdentity.zig").LlmParams;
+const ConfigIdentity = @import("ConfigIdentity.zig");
+const LlmParams = ConfigIdentity.LlmParams;
+const PromptTemplates = ConfigIdentity.PromptTemplates;
+const EventSystem = @import("EventSystem.zig").EventSystem;
 
 pub const IdleThinker = struct {
     pub const Params = struct {
@@ -20,12 +23,14 @@ pub const IdleThinker = struct {
         store: anytype,
         policy: MemoryPolicy,
         cli: *Cli,
+        events: *EventSystem,
         params: Params,
         now_ms: i64,
         llm_idle: LlmParams,
         llm_episode: LlmParams,
         conf_idle: f32,
         conf_episode: f32,
+        prompts: PromptTemplates,
     ) !void {
         const last_user = store.getLastUserMsgMs();
         const gap = Temporal.gapMs(now_ms, last_user);
@@ -40,6 +45,7 @@ pub const IdleThinker = struct {
                 store,
                 now_ms,
                 llm_idle,
+                prompts,
             );
             defer allocator.free(thought);
 
@@ -54,6 +60,7 @@ pub const IdleThinker = struct {
 
             store.setLastIdleThinkMs(now_ms);
             cli.msg(.inf, "Idle thinker: stored self.thought", .{});
+            events.emit(.thought_generated, "self", thought);
         }
 
         const new_count = store.countMessagesSinceCutoff();
@@ -76,6 +83,7 @@ pub const IdleThinker = struct {
                     provider,
                     ep_msgs,
                     llm_episode,
+                    prompts,
                 );
                 defer {
                     allocator.free(ep.title);
@@ -104,6 +112,7 @@ pub const IdleThinker = struct {
                     "Idle thinker: episode summary stored and cutoff advanced.",
                     .{},
                 );
+                events.emit(.episode_compacted, "episode", ep.title);
             }
         }
     }
@@ -124,15 +133,21 @@ pub const IdleThinker = struct {
         store: anytype,
         now_ms: i64,
         llm_params: LlmParams,
+        prompts: PromptTemplates,
     ) ![]u8 {
-        const prompt = try buildThoughtPrompt(allocator, store, now_ms);
+        const prompt = try buildThoughtPrompt(
+            allocator,
+            store,
+            now_ms,
+            prompts.idle_thinker,
+        );
         defer allocator.free(prompt);
 
         const msgs = &[_]Types.Message{
             .{ .role = .system, .content = prompt, .created_at_ms = 0 },
             .{
                 .role = .user,
-                .content = "Generate thought and output JSON.",
+                .content = prompts.idle_user_trigger,
                 .created_at_ms = 0,
             },
         };
@@ -154,20 +169,13 @@ pub const IdleThinker = struct {
         allocator: std.mem.Allocator,
         store: anytype,
         now_ms: i64,
+        idle_template: []const u8,
     ) ![]u8 {
         var out: std.ArrayList(u8) = .empty;
         errdefer out.deinit(allocator);
 
-        try out.appendSlice(
-            allocator,
-            "IDLE_MONOLOGUE\n" ++
-                "You are the IDLE THINKER of REMEMBRA.\n" ++
-                "Generate ONE short inner thought about this conversation, " ++
-                "yourself, an interaction, or anything you " ++
-                "find appropriate or interesting.\n" ++
-                "Output JSON ONLY.\n" ++
-                "Schema: { \"thought\": \"...\" }\n\n",
-        );
+        try out.appendSlice(allocator, idle_template);
+        try out.appendSlice(allocator, "\n\n");
 
         const recent = try store.loadRecentMessages(allocator, 6);
         defer {

@@ -19,6 +19,7 @@ pub fn main() !void {
 
     var app = try App.init(allocator, cli);
     defer app.deinit(allocator);
+    app.initEvents();
 
     try app.run(allocator);
 }

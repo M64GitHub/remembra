@@ -1,7 +1,9 @@
 const std = @import("std");
 const Types = @import("Types.zig");
 const JsonUtils = @import("JsonUtils.zig");
-const LlmParams = @import("ConfigIdentity.zig").LlmParams;
+const ConfigIdentity = @import("ConfigIdentity.zig");
+const LlmParams = ConfigIdentity.LlmParams;
+const PromptTemplates = ConfigIdentity.PromptTemplates;
 
 pub const EpisodeSummary = struct {
     title: []const u8,
@@ -14,15 +16,16 @@ pub const EpisodeCompactor = struct {
         provider: anytype,
         msgs: []const Types.Message,
         llm_params: LlmParams,
+        prompts: PromptTemplates,
     ) !EpisodeSummary {
-        const prompt = try buildPrompt(allocator, msgs);
+        const prompt = try buildPrompt(allocator, msgs, prompts.episode_compactor);
         defer allocator.free(prompt);
 
         const call_msgs = &[_]Types.Message{
             .{ .role = .system, .content = prompt, .created_at_ms = 0 },
             .{
                 .role = .user,
-                .content = "Summarize and output JSON.",
+                .content = prompts.episode_user_trigger,
                 .created_at_ms = 0,
             },
         };
@@ -46,22 +49,13 @@ pub const EpisodeCompactor = struct {
     fn buildPrompt(
         allocator: std.mem.Allocator,
         msgs: []const Types.Message,
+        episode_template: []const u8,
     ) ![]u8 {
         var out: std.ArrayList(u8) = .empty;
         errdefer out.deinit(allocator);
 
-        try out.appendSlice(allocator,
-            \\EPISODE_COMPACTION
-            \\You are the EPISODE COMPACTOR of REMEMBRA.
-            \\Summarize the conversation into a compact episode.
-            \\Output JSON ONLY.
-            \\
-            \\Schema:
-            \\{ "title": "...", "summary": "..." }
-            \\
-            \\Conversation:
-            \\
-        );
+        try out.appendSlice(allocator, episode_template);
+        try out.appendSlice(allocator, "\n");
 
         for (msgs) |m| {
             const line = try std.fmt.allocPrint(allocator, "{s}: {s}\n", .{
