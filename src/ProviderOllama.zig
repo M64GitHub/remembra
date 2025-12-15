@@ -37,7 +37,8 @@ pub const ProviderOllama = struct {
         );
         defer allocator.free(url);
 
-        const payload = try buildRequestJson(allocator, self.model, msgs, params);
+        const payload =
+            try buildRequestJson(allocator, self.model, msgs, params);
         defer allocator.free(payload);
 
         const response = try httpPost(allocator, url, payload);

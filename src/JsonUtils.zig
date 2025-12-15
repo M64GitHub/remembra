@@ -8,7 +8,6 @@ const std = @import("std");
 /// - Plain text with embedded JSON object
 /// Returns a slice into the original response (no allocation).
 pub fn extractJsonObject(response: []const u8) []const u8 {
-    // Try ```json ... ```
     if (std.mem.indexOf(u8, response, "```json")) |start| {
         const after_fence = start + 7;
         const content_start = skipWhitespace(response, after_fence);
@@ -16,7 +15,6 @@ pub fn extractJsonObject(response: []const u8) []const u8 {
             return std.mem.trimRight(u8, response[content_start..end], " \n\r\t");
         }
     }
-    // Try ``` ... ```
     if (std.mem.indexOf(u8, response, "```")) |start| {
         const after_fence = start + 3;
         const content_start = skipWhitespace(response, after_fence);
