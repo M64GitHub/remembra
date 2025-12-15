@@ -6,6 +6,8 @@ const Cli = @import("Cli.zig").Cli;
 const IdleThinker = @import("IdleThinker.zig").IdleThinker;
 const EpisodeCompactor = @import("EpisodeCompactor.zig").EpisodeCompactor;
 const App = @import("App.zig").App;
+const EventSystem = @import("EventSystem.zig");
+const EventKind = @import("MemoryStoreSqlite.zig").EventKind;
 
 pub const Result = enum {
     handled,
@@ -49,6 +51,9 @@ pub fn execute(
     if (std.mem.eql(u8, line, "/episode compact"))
         return cmdEpisodeCompact(allocator, app);
 
+    if (std.mem.eql(u8, line, "/events"))
+        return cmdEvents(allocator, app);
+
     return .not_command;
 }
 
@@ -70,6 +75,7 @@ pub fn help() []const u8 {
     \\  /idle run          - Trigger idle thinking
     \\  /idle tick <min>   - Advance time + idle think
     \\  /episode compact   - Compact messages into episode
+    \\  /events            - Show recent events
     ;
 }
 
@@ -259,12 +265,14 @@ fn cmdIdleRun(allocator: std.mem.Allocator, app: *App) !Result {
         &app.store,
         policy,
         app.cli,
+        &app.events,
         app.sys.idle_params,
         now_ms,
         app.ident.llm_idle,
         app.ident.llm_episode,
         app.ident.confidence_idle_thoughts,
         app.ident.confidence_episodes,
+        app.ident.prompts,
     );
     return .handled;
 }
@@ -287,12 +295,14 @@ fn cmdIdleTick(
         &app.store,
         policy,
         app.cli,
+        &app.events,
         app.sys.idle_params,
         now_ms,
         app.ident.llm_idle,
         app.ident.llm_episode,
         app.ident.confidence_idle_thoughts,
         app.ident.confidence_episodes,
+        app.ident.prompts,
     );
     app.cli.msg(.ok, "Idle ticked by {d} minutes.", .{minutes});
     return .handled;
@@ -325,6 +335,7 @@ fn cmdEpisodeCompact(allocator: std.mem.Allocator, app: *App) !Result {
         &app.provider,
         ep_msgs,
         app.ident.llm_episode,
+        app.ident.prompts,
     );
     defer {
         allocator.free(ep.title);
@@ -354,6 +365,27 @@ fn cmdEpisodeCompact(allocator: std.mem.Allocator, app: *App) !Result {
         "Stored episode summary as [mem#{d}] and advanced cutoff to {d}.",
         .{ id, app.store.getEpisodeCutoffIndex() },
     );
+    return .handled;
+}
+
+fn cmdEvents(allocator: std.mem.Allocator, app: *App) !Result {
+    const events = try app.events.query(allocator, null, null, 20);
+    defer EventSystem.freeEvents(allocator, events);
+
+    if (events.len == 0) {
+        app.cli.msg(.inf, "No events recorded.", .{});
+        return .handled;
+    }
+
+    app.cli.msg(.inf, "Recent events ({d}):", .{events.len});
+    for (events) |e| {
+        app.cli.msg(.inf, "  [{d}] {s}: {s} - {s}", .{
+            e.id,
+            @tagName(e.kind),
+            e.subject,
+            e.details,
+        });
+    }
     return .handled;
 }
 

@@ -41,12 +41,25 @@ pub const SCHEMA =
     \\    created_at_ms INTEGER NOT NULL
     \\);
     \\
+    \\CREATE TABLE IF NOT EXISTS events (
+    \\    id            INTEGER PRIMARY KEY AUTOINCREMENT,
+    \\    kind          INTEGER NOT NULL,
+    \\    timestamp_ms  INTEGER NOT NULL,
+    \\    subject       TEXT NOT NULL,
+    \\    details       TEXT NOT NULL,
+    \\    session_id    TEXT
+    \\);
+    \\
     \\CREATE INDEX IF NOT EXISTS idx_messages_created
     \\    ON messages(created_at_ms);
     \\CREATE INDEX IF NOT EXISTS idx_mem_active
     \\    ON memory_items(is_active, subject, predicate);
     \\CREATE INDEX IF NOT EXISTS idx_mem_updated
     \\    ON memory_items(updated_at_ms);
+    \\CREATE INDEX IF NOT EXISTS idx_events_time
+    \\    ON events(timestamp_ms);
+    \\CREATE INDEX IF NOT EXISTS idx_events_kind
+    \\    ON events(kind);
 ;
 
 pub const MemoryStoreSqlite = struct {
@@ -76,6 +89,7 @@ pub const MemoryStoreSqlite = struct {
             \\DELETE FROM messages;
             \\DELETE FROM memory_items;
             \\DELETE FROM identity_entries;
+            \\DELETE FROM events;
             \\DELETE FROM meta;
         );
         try self.ensureSchema();
@@ -703,6 +717,164 @@ pub const MemoryStoreSqlite = struct {
             .updated_at_ms = sqlite.columnInt64(stmt, 8),
         };
     }
+
+    pub fn insertEvent(
+        self: *MemoryStoreSqlite,
+        kind: EventKind,
+        subject: []const u8,
+        details: []const u8,
+        session_id: ?[]const u8,
+    ) !i64 {
+        const now = self.nowMs();
+
+        const stmt = try self.db.prepare(
+            "INSERT INTO events(kind, timestamp_ms, subject, details, " ++
+                "session_id) VALUES(?, ?, ?, ?, ?);",
+        );
+        defer sqlite.finalize(stmt);
+
+        sqlite.bindInt(stmt, 1, @intFromEnum(kind));
+        sqlite.bindInt64(stmt, 2, now);
+        sqlite.bindText(stmt, 3, subject);
+        sqlite.bindText(stmt, 4, details);
+        if (session_id) |sid| {
+            sqlite.bindText(stmt, 5, sid);
+        } else {
+            sqlite.bindNull(stmt, 5);
+        }
+
+        if (sqlite.step(stmt) != c.SQLITE_DONE) {
+            return error.SqliteStepFailed;
+        }
+
+        return self.db.lastInsertRowId();
+    }
+
+    pub fn queryEvents(
+        self: *MemoryStoreSqlite,
+        allocator: std.mem.Allocator,
+        since_ms: ?i64,
+        kind_filter: ?EventKind,
+        limit: usize,
+    ) ![]Event {
+        var out: std.ArrayList(Event) = .empty;
+        errdefer {
+            for (out.items) |e| {
+                allocator.free(@constCast(e.subject));
+                allocator.free(@constCast(e.details));
+                if (e.session_id) |sid| allocator.free(@constCast(sid));
+            }
+            out.deinit(allocator);
+        }
+
+        if (since_ms != null and kind_filter != null) {
+            const stmt = try self.db.prepare(
+                "SELECT id, kind, timestamp_ms, subject, details, session_id " ++
+                    "FROM events WHERE timestamp_ms >= ? AND kind = ? " ++
+                    "ORDER BY timestamp_ms DESC LIMIT ?;",
+            );
+            defer sqlite.finalize(stmt);
+
+            sqlite.bindInt64(stmt, 1, since_ms.?);
+            sqlite.bindInt(stmt, 2, @intFromEnum(kind_filter.?));
+            sqlite.bindInt(stmt, 3, @intCast(limit));
+
+            while (sqlite.step(stmt) == c.SQLITE_ROW) {
+                try out.append(allocator, try self.readEventRow(allocator, stmt));
+            }
+        } else if (since_ms != null) {
+            const stmt = try self.db.prepare(
+                "SELECT id, kind, timestamp_ms, subject, details, session_id " ++
+                    "FROM events WHERE timestamp_ms >= ? " ++
+                    "ORDER BY timestamp_ms DESC LIMIT ?;",
+            );
+            defer sqlite.finalize(stmt);
+
+            sqlite.bindInt64(stmt, 1, since_ms.?);
+            sqlite.bindInt(stmt, 2, @intCast(limit));
+
+            while (sqlite.step(stmt) == c.SQLITE_ROW) {
+                try out.append(allocator, try self.readEventRow(allocator, stmt));
+            }
+        } else if (kind_filter != null) {
+            const stmt = try self.db.prepare(
+                "SELECT id, kind, timestamp_ms, subject, details, session_id " ++
+                    "FROM events WHERE kind = ? " ++
+                    "ORDER BY timestamp_ms DESC LIMIT ?;",
+            );
+            defer sqlite.finalize(stmt);
+
+            sqlite.bindInt(stmt, 1, @intFromEnum(kind_filter.?));
+            sqlite.bindInt(stmt, 2, @intCast(limit));
+
+            while (sqlite.step(stmt) == c.SQLITE_ROW) {
+                try out.append(allocator, try self.readEventRow(allocator, stmt));
+            }
+        } else {
+            const stmt = try self.db.prepare(
+                "SELECT id, kind, timestamp_ms, subject, details, session_id " ++
+                    "FROM events ORDER BY timestamp_ms DESC LIMIT ?;",
+            );
+            defer sqlite.finalize(stmt);
+
+            sqlite.bindInt(stmt, 1, @intCast(limit));
+
+            while (sqlite.step(stmt) == c.SQLITE_ROW) {
+                try out.append(allocator, try self.readEventRow(allocator, stmt));
+            }
+        }
+
+        return try out.toOwnedSlice(allocator);
+    }
+
+    fn readEventRow(
+        self: *MemoryStoreSqlite,
+        allocator: std.mem.Allocator,
+        stmt: *c.sqlite3_stmt,
+    ) !Event {
+        _ = self;
+        const sid_raw = sqlite.columnText(stmt, 5);
+        const session_id: ?[]const u8 = if (sid_raw.len > 0)
+            try allocator.dupe(u8, sid_raw)
+        else
+            null;
+
+        return .{
+            .id = sqlite.columnInt64(stmt, 0),
+            .kind = @enumFromInt(sqlite.columnInt(stmt, 1)),
+            .timestamp_ms = sqlite.columnInt64(stmt, 2),
+            .subject = try allocator.dupe(u8, sqlite.columnText(stmt, 3)),
+            .details = try allocator.dupe(u8, sqlite.columnText(stmt, 4)),
+            .session_id = session_id,
+        };
+    }
+
+    pub fn countEvents(self: *MemoryStoreSqlite) !usize {
+        return @intCast(try self.scalarI64("SELECT COUNT(*) FROM events;"));
+    }
+};
+
+pub const EventKind = enum(u8) {
+    memory_proposed = 0,
+    memory_stored = 1,
+    memory_decayed = 2,
+    memory_rejected = 3,
+    episode_compacted = 4,
+    thought_generated = 5,
+    governor_blocked = 6,
+    governor_accepted = 7,
+    context_built = 8,
+    chat_completed = 9,
+    security_warning = 10,
+};
+
+pub const Event = struct {
+    id: i64 = 0,
+    kind: EventKind,
+    timestamp_ms: i64,
+    subject: []const u8,
+    details: []const u8,
+    session_id: ?[]const u8 = null,
 };
 
 test "MemoryStoreSqlite schema creation" {

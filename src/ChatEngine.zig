@@ -11,6 +11,7 @@ const Retrieval = @import("Retrieval.zig").Retrieval;
 const PromptBuilder = @import("PromptBuilder.zig").PromptBuilder;
 const Reflector = @import("Reflector.zig").Reflector;
 const Governor = @import("Governor.zig").Governor;
+const EventKind = @import("MemoryStoreSqlite.zig").EventKind;
 
 const TurnContext = struct {
     identity: []const Types.IdentityEntry,
@@ -47,34 +48,47 @@ pub fn processTurn(
     app: *App,
     user_input: []const u8,
 ) !void {
-    const allow_ops = checkSecurity(app.cli, user_input);
+    const reply = try processAndReturn(allocator, app, user_input);
+    defer allocator.free(reply);
+    app.cli.msg(.rok, "{s}", .{reply});
+}
 
-    try runHousekeeping(allocator, app);
+pub fn processAndReturn(
+    allocator: std.mem.Allocator,
+    app: *App,
+    user_input: []const u8,
+) ![]u8 {
+    const allow_ops = checkSecurity(app, user_input);
+
+    try runIdleThinker(allocator, app);
 
     var ctx = try gatherContext(allocator, app);
     defer ctx.deinit(allocator);
 
     const reply = try generateReply(allocator, app, &ctx, user_input);
-    defer allocator.free(reply);
+    errdefer allocator.free(reply);
 
     try runReflection(allocator, app, &ctx, reply, allow_ops);
+
+    return reply;
 }
 
-fn checkSecurity(cli: *Cli, input: []const u8) bool {
+fn checkSecurity(app: *App, input: []const u8) bool {
     const guard = InjectionGuard.check(input);
     if (guard.is_attack) {
-        cli.msg(
+        app.cli.msg(
             .wrn,
             "Input looks like prompt-injection (reason: {s}). " ++
                 "Memory ops disabled.",
             .{guard.reason},
         );
+        app.events.emit(.security_warning, "injection", guard.reason);
     }
     const intent = Intent.classifyMemoryIntent(input);
     return !guard.is_attack and (intent == .explicit_store);
 }
 
-fn runHousekeeping(allocator: std.mem.Allocator, app: *App) !void {
+fn runIdleThinker(allocator: std.mem.Allocator, app: *App) !void {
     const now_ms = app.store.nowMs();
     const policy = app.ident.memory_policy;
 
@@ -86,12 +100,14 @@ fn runHousekeeping(allocator: std.mem.Allocator, app: *App) !void {
         &app.store,
         policy,
         app.cli,
+        &app.events,
         app.sys.idle_params,
         now_ms,
         app.ident.llm_idle,
         app.ident.llm_episode,
         app.ident.confidence_idle_thoughts,
         app.ident.confidence_episodes,
+        app.ident.prompts,
     );
 }
 
@@ -173,6 +189,13 @@ fn generateReply(
     app.cli.msg(.dbg, "injecting {d} memory items", .{ctx.memory.len});
     app.cli.msg(.dbg, "injecting {d} recent messages", .{ctx.recent.len});
 
+    app.events.emitFmt(
+        .context_built,
+        "chat",
+        "memory={d} recent={d}",
+        .{ ctx.memory.len, ctx.recent.len },
+    );
+
     const model_msgs = try PromptBuilder.build(
         allocator,
         ctx.identity,
@@ -184,6 +207,7 @@ fn generateReply(
         ctx.last_episode,
         ctx.last_thought,
         app.ident.name,
+        app.ident.prompts,
     );
     defer {
         if (model_msgs.len != 0 and model_msgs[0].role == .system) {
@@ -210,7 +234,7 @@ fn generateReply(
 
     try app.store.insertMessage(allocator, .assistant, reply);
 
-    app.cli.msg(.rok, "{s}", .{reply});
+    app.events.emitFmt(.chat_completed, "chat", "len={d}", .{reply.len});
 
     return reply;
 }
@@ -252,7 +276,9 @@ fn runReflection(
         reply,
         allow_memory_ops,
         app.cli,
+        &app.events,
         app.ident.llm_reflection,
+        app.ident.prompts,
     );
     defer {
         for (proposals) |p| {
@@ -273,6 +299,7 @@ fn runReflection(
                 policy,
                 proposals,
                 app.cli,
+                &app.events,
                 .{
                     .rate_limit_ms = app.sys.rate_limit_ms,
                     .confidence_min = app.ident.confidence_min_governor,
@@ -280,10 +307,17 @@ fn runReflection(
             );
         } else {
             app.cli.msg(
-                .dbg,
+                .inf,
                 "[Governor] skipped {d} proposal(s): no explicit intent",
                 .{proposals.len},
             );
+            for (proposals) |p| {
+                app.events.emit(
+                    .governor_blocked,
+                    p.subject,
+                    "no explicit intent",
+                );
+            }
         }
     }
 }

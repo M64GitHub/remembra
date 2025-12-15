@@ -2,7 +2,10 @@ const std = @import("std");
 const Types = @import("Types.zig");
 const Cli = @import("Cli.zig").Cli;
 const JsonUtils = @import("JsonUtils.zig");
-const LlmParams = @import("ConfigIdentity.zig").LlmParams;
+const ConfigIdentity = @import("ConfigIdentity.zig");
+const LlmParams = ConfigIdentity.LlmParams;
+const PromptTemplates = ConfigIdentity.PromptTemplates;
+const EventSystem = @import("EventSystem.zig").EventSystem;
 
 pub const ReflectionProposal = struct {
     action: Action,
@@ -29,7 +32,9 @@ pub const Reflector = struct {
         assistant_reply: []const u8,
         allow_memory_ops: bool,
         cli: *Cli,
+        events: *EventSystem,
         llm_params: LlmParams,
+        prompts: PromptTemplates,
     ) ![]ReflectionProposal {
         const prompt = try buildReflectionPrompt(
             allocator,
@@ -38,6 +43,7 @@ pub const Reflector = struct {
             recent,
             assistant_reply,
             allow_memory_ops,
+            prompts,
         );
         defer allocator.free(prompt);
 
@@ -47,7 +53,7 @@ pub const Reflector = struct {
             .{ .role = .system, .content = prompt, .created_at_ms = 0 },
             .{
                 .role = .user,
-                .content = "Analyze and output JSON proposals.",
+                .content = prompts.reflector_user_trigger,
                 .created_at_ms = 0,
             },
         };
@@ -64,10 +70,21 @@ pub const Reflector = struct {
         const extracted = JsonUtils.extractJsonObject(response);
         cli.msg(.dbg, "[Reflector] Extracted JSON: {s}", .{extracted});
 
-        return parseProposals(allocator, extracted) catch {
+        const proposals = parseProposals(allocator, extracted) catch {
             cli.msg(.wrn, "[Reflector] Failed to parse JSON", .{});
             return allocator.alloc(ReflectionProposal, 0);
         };
+
+        for (proposals) |p| {
+            events.emitFmt(
+                .memory_proposed,
+                p.subject,
+                "{s}.{s}={s} conf={d:.2}",
+                .{ p.subject, p.predicate, p.object, p.confidence },
+            );
+        }
+
+        return proposals;
     }
 
     fn buildReflectionPrompt(
@@ -77,58 +94,17 @@ pub const Reflector = struct {
         recent: []const Types.Message,
         assistant_reply: []const u8,
         allow_memory_ops: bool,
+        prompts: PromptTemplates,
     ) ![]u8 {
         var out: std.ArrayList(u8) = .empty;
         errdefer out.deinit(allocator);
 
-        try out.appendSlice(allocator,
-            \\You are the REFLECTION module of REMEMBRA.
-            \\You may PROPOSE memory changes, but you do NOT apply them.
-            \\
-            \\SUBJECT RULES (IMPORTANT):
-            \\- subject MUST be "user" (facts about the human) or "self" (about AI)
-            \\- NEVER use the user's name as subject - always use "user"
-            \\- These are canonical identifiers, not personal names
-            \\
-            \\RULES:
-            \\- Only propose changes explicitly stated by the user
-            \\- Do not infer preferences or facts
-            \\- Use confidence >= 0.7 for explicit statements
-            \\- Check existing memory - don't propose duplicates
-            \\- Output JSON ONLY, no other text
-            \\
-            \\SCHEMA:
-            \\{ "proposals": [
-            \\  { "action": "add",
-            \\    "kind": "fact",
-            \\    "subject": "user",
-            \\    "predicate": "friend",
-            \\    "object": "Lala",
-            \\    "confidence": 0.8 }
-            \\] }
-            \\
-            \\action: add|update|deactivate
-            \\kind: fact|preference|project|note
-            \\subject: "user" or "self" ONLY
-            \\
-            \\EXAMPLES:
-            \\- "remember Lala is my friend" -> user.friend=Lala
-            \\- "I like coffee" -> user.likes=coffee
-            \\- "my name is Mario" -> user.name=Mario
-            \\
-            \\Empty if nothing to store: { "proposals": [] }
-            \\
-            \\
-        );
+        try out.appendSlice(allocator, prompts.reflector_system);
+        try out.appendSlice(allocator, "\n\n");
 
         if (!allow_memory_ops) {
-            try out.appendSlice(allocator,
-                \\
-                \\IMPORTANT: The user did NOT request memory storage in the latest message.
-                \\Output MUST be: { "proposals": [] }
-                \\
-                \\
-            );
+            try out.appendSlice(allocator, prompts.reflector_no_ops);
+            try out.appendSlice(allocator, "\n\n");
         }
 
         try out.appendSlice(allocator, "IDENTITY:\n");
