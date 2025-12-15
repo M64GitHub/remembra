@@ -39,6 +39,7 @@ onMounted(() => {
         <span class="icon">&#9776;</span>
       </button>
       <div class="brand">
+        <img src="/remembra.svg" alt="REMEMBRA" class="brand-logo" />
         <span class="brand-name">REMEMBRA</span>
         <span class="brand-version">v0.1</span>
       </div>
@@ -115,8 +116,13 @@ onMounted(() => {
 
 .brand {
   display: flex;
-  align-items: baseline;
+  align-items: center;
   gap: var(--space-xs);
+}
+
+.brand-logo {
+  width: 28px;
+  height: 28px;
 }
 
 .brand-name {
