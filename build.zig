@@ -48,4 +48,20 @@ pub fn build(b: *std.Build) void {
     const http_test_run = b.addRunArtifact(http_test);
     const http_test_step = b.step("run-http-test", "Test HTTP client with Ollama");
     http_test_step.dependOn(&http_test_run.step);
+
+    const server_exe = b.addExecutable(.{
+        .name = "remembra-server",
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("src/remembra_server.zig"),
+            .target = target,
+            .optimize = optimize,
+        }),
+    });
+
+    server_exe.root_module.linkSystemLibrary("sqlite3", .{});
+    b.installArtifact(server_exe);
+
+    const server_run = b.addRunArtifact(server_exe);
+    const server_step = b.step("server", "Run REMEMBRA HTTP server");
+    server_step.dependOn(&server_run.step);
 }

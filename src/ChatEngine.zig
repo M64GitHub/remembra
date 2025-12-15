@@ -48,6 +48,16 @@ pub fn processTurn(
     app: *App,
     user_input: []const u8,
 ) !void {
+    const reply = try processAndReturn(allocator, app, user_input);
+    defer allocator.free(reply);
+    app.cli.msg(.rok, "{s}", .{reply});
+}
+
+pub fn processAndReturn(
+    allocator: std.mem.Allocator,
+    app: *App,
+    user_input: []const u8,
+) ![]u8 {
     const allow_ops = checkSecurity(app, user_input);
 
     try runIdleThinker(allocator, app);
@@ -56,9 +66,11 @@ pub fn processTurn(
     defer ctx.deinit(allocator);
 
     const reply = try generateReply(allocator, app, &ctx, user_input);
-    defer allocator.free(reply);
+    errdefer allocator.free(reply);
 
     try runReflection(allocator, app, &ctx, reply, allow_ops);
+
+    return reply;
 }
 
 fn checkSecurity(app: *App, input: []const u8) bool {
@@ -223,8 +235,6 @@ fn generateReply(
     try app.store.insertMessage(allocator, .assistant, reply);
 
     app.events.emitFmt(.chat_completed, "chat", "len={d}", .{reply.len});
-
-    app.cli.msg(.rok, "{s}", .{reply});
 
     return reply;
 }
