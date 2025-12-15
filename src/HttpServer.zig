@@ -133,6 +133,8 @@ fn handleRequest(
         std.mem.eql(u8, target, "/api/profiles/active"))
     {
         try handlePostActiveProfiles(allocator, app, request);
+    } else if (method == .GET) {
+        try handleStaticFile(allocator, request);
     } else {
         try respondError(request, .not_found, "Not Found");
     }
@@ -1167,4 +1169,115 @@ fn buildPersonasJson(
 
     try out.appendSlice(allocator, "]}");
     return out.toOwnedSlice(allocator);
+}
+
+const WEB_ROOT = "web/dist";
+const MAX_STATIC_FILE_SIZE = 10 * 1024 * 1024;
+
+fn handleStaticFile(
+    allocator: std.mem.Allocator,
+    request: *std.http.Server.Request,
+) !void {
+    const target = request.head.target;
+
+    const clean_path = sanitizePath(target) orelse {
+        try respondError(request, .bad_request, "Invalid path");
+        return;
+    };
+
+    const file_path = std.fs.path.join(allocator, &.{ WEB_ROOT, clean_path }) catch {
+        try serveIndexHtml(allocator, request);
+        return;
+    };
+    defer allocator.free(file_path);
+
+    const content = std.fs.cwd().readFileAlloc(
+        allocator,
+        file_path,
+        MAX_STATIC_FILE_SIZE,
+    ) catch {
+        try serveIndexHtml(allocator, request);
+        return;
+    };
+    defer allocator.free(content);
+
+    const mime = getMimeType(file_path);
+    try respondWithMime(request, content, mime);
+}
+
+fn sanitizePath(path: []const u8) ?[]const u8 {
+    var clean = path;
+    if (std.mem.indexOf(u8, path, "?")) |idx| {
+        clean = path[0..idx];
+    }
+
+    if (std.mem.indexOf(u8, clean, "..") != null) return null;
+
+    if (clean.len == 0 or std.mem.eql(u8, clean, "/")) {
+        return "index.html";
+    }
+
+    return if (clean[0] == '/') clean[1..] else clean;
+}
+
+fn getMimeType(path: []const u8) []const u8 {
+    const ext = std.fs.path.extension(path);
+
+    if (std.mem.eql(u8, ext, ".html")) return "text/html; charset=utf-8";
+    if (std.mem.eql(u8, ext, ".css")) return "text/css; charset=utf-8";
+    if (std.mem.eql(u8, ext, ".js")) return "application/javascript";
+    if (std.mem.eql(u8, ext, ".json")) return "application/json";
+    if (std.mem.eql(u8, ext, ".png")) return "image/png";
+    if (std.mem.eql(u8, ext, ".jpg")) return "image/jpeg";
+    if (std.mem.eql(u8, ext, ".jpeg")) return "image/jpeg";
+    if (std.mem.eql(u8, ext, ".gif")) return "image/gif";
+    if (std.mem.eql(u8, ext, ".svg")) return "image/svg+xml";
+    if (std.mem.eql(u8, ext, ".ico")) return "image/x-icon";
+    if (std.mem.eql(u8, ext, ".woff")) return "font/woff";
+    if (std.mem.eql(u8, ext, ".woff2")) return "font/woff2";
+    if (std.mem.eql(u8, ext, ".ttf")) return "font/ttf";
+    if (std.mem.eql(u8, ext, ".map")) return "application/json";
+
+    return "application/octet-stream";
+}
+
+fn serveIndexHtml(
+    allocator: std.mem.Allocator,
+    request: *std.http.Server.Request,
+) !void {
+    const index_path = std.fs.path.join(
+        allocator,
+        &.{ WEB_ROOT, "index.html" },
+    ) catch {
+        try respondError(request, .not_found, "index.html not found");
+        return;
+    };
+    defer allocator.free(index_path);
+
+    const content = std.fs.cwd().readFileAlloc(
+        allocator,
+        index_path,
+        1 * 1024 * 1024,
+    ) catch {
+        try respondError(request, .not_found, "index.html not found");
+        return;
+    };
+    defer allocator.free(content);
+
+    try respondWithMime(request, content, "text/html; charset=utf-8");
+}
+
+fn respondWithMime(
+    request: *std.http.Server.Request,
+    body: []const u8,
+    mime: []const u8,
+) !void {
+    try request.respond(body, .{
+        .status = .ok,
+        .extra_headers = &.{
+            .{ .name = "Content-Type", .value = mime },
+            .{ .name = "Access-Control-Allow-Origin", .value = "*" },
+            .{ .name = "Cache-Control", .value = "public, max-age=3600" },
+        },
+    });
 }
