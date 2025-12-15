@@ -92,21 +92,28 @@ async function sendMessage(text) {
   appState.isChatBusy = true
   error.value = null
 
-  const userMsg = {
-    id: Date.now(),
+  const msgId = Date.now()
+  messages.value.push({
+    id: msgId,
     role: 'user',
     content: text,
-    created_at_ms: Date.now(),
+    created_at_ms: msgId,
     pending: true,
-  }
-  messages.value.push(userMsg)
+  })
 
   await nextTick()
 
   try {
     const data = await chat.send(text)
 
-    userMsg.pending = false
+    // Update through reactive array to trigger re-render
+    const userMsgIndex = messages.value.findIndex(m => m.id === msgId)
+    if (userMsgIndex >= 0) {
+      messages.value[userMsgIndex] = {
+        ...messages.value[userMsgIndex],
+        pending: false,
+      }
+    }
 
     messages.value.push({
       id: Date.now() + 1,
@@ -116,7 +123,14 @@ async function sendMessage(text) {
     })
   } catch (e) {
     error.value = e.message
-    userMsg.error = true
+    // Update through reactive array
+    const userMsgIndex = messages.value.findIndex(m => m.id === msgId)
+    if (userMsgIndex >= 0) {
+      messages.value[userMsgIndex] = {
+        ...messages.value[userMsgIndex],
+        error: true,
+      }
+    }
     console.error('Failed to send message:', e)
   } finally {
     isSending.value = false
@@ -155,6 +169,7 @@ onUnmounted(() => {
       :is-loading="isLoading"
       :has-more="hasMore"
       :is-sending="isSending"
+      :max-recent-messages="appState.maxRecentMessages"
       @load-more="loadMore"
     />
 

@@ -1,12 +1,14 @@
 <script setup>
 import { ref, onMounted, onUnmounted, computed, watch } from 'vue'
-import { context as contextApi } from '../../api/client.js'
+import { context as contextApi, systemConfig } from '../../api/client.js'
 import { appState, registerReload } from '../../stores/appState.js'
 
 const contextData = ref(null)
 const isLoading = ref(false)
 const error = ref(null)
+const isSavingConfig = ref(false)
 const expandedSections = ref({
+  settings: true,
   prompt: true,
   stats: true,
 })
@@ -54,6 +56,31 @@ function toggleSection(section) {
   expandedSections.value[section] = !expandedSections.value[section]
 }
 
+async function loadContextWindow() {
+  try {
+    const data = await systemConfig.getContextWindow()
+    appState.maxRecentMessages = data.max_recent_messages
+  } catch (e) {
+    console.error('[Context] Failed to load context window config:', e)
+  }
+}
+
+let saveTimeout = null
+function saveContextWindow() {
+  if (saveTimeout) clearTimeout(saveTimeout)
+  saveTimeout = setTimeout(async () => {
+    isSavingConfig.value = true
+    try {
+      await systemConfig.setContextWindow(appState.maxRecentMessages)
+      console.log('[Context] Saved context window:', appState.maxRecentMessages)
+    } catch (e) {
+      console.error('[Context] Failed to save context window:', e)
+    } finally {
+      isSavingConfig.value = false
+    }
+  }, 500)
+}
+
 // Auto-refresh context when chat completes
 watch(
   () => appState.isChatBusy,
@@ -69,11 +96,13 @@ let unregisterReload = null
 
 onMounted(() => {
   setTimeout(loadContext, 2000)
+  setTimeout(loadContextWindow, 2000)
 
   // Register for persona change reloads
   unregisterReload = registerReload('context', async () => {
     contextData.value = null
     await loadContext()
+    await loadContextWindow()
   })
 })
 
@@ -101,6 +130,39 @@ onUnmounted(() => {
     </div>
 
     <div class="context-content" v-if="contextData">
+      <!-- Settings Section -->
+      <div class="context-section">
+        <button
+          class="section-header"
+          @click="toggleSection('settings')"
+        >
+          <span class="section-title">Settings</span>
+          <span class="section-toggle">
+            {{ expandedSections.settings ? '\u25BC' : '\u25B6' }}
+          </span>
+        </button>
+        <div class="section-body" v-show="expandedSections.settings">
+          <div class="setting-row">
+            <label class="setting-label" for="context-window-size">
+              Context window:
+            </label>
+            <div class="setting-input-group">
+              <input
+                id="context-window-size"
+                type="number"
+                min="1"
+                max="200"
+                v-model.number="appState.maxRecentMessages"
+                @input="saveContextWindow"
+                class="setting-input"
+                :disabled="isSavingConfig"
+              />
+              <span class="setting-hint">messages</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
       <!-- Stats Section -->
       <div class="context-section">
         <button
@@ -119,7 +181,9 @@ onUnmounted(() => {
           </div>
           <div class="stat-row">
             <span class="stat-label">Recent messages:</span>
-            <span class="stat-value">{{ contextData.recent_count }}</span>
+            <span class="stat-value">
+              {{ contextData.recent_count }} / {{ appState.maxRecentMessages }}
+            </span>
           </div>
           <div class="stat-row">
             <span class="stat-label">Prompt lines:</span>
@@ -265,6 +329,50 @@ onUnmounted(() => {
 .stat-value {
   color: var(--accent-primary);
   font-family: var(--font-mono);
+}
+
+.setting-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 4px 0;
+}
+
+.setting-label {
+  color: var(--text-muted);
+  font-size: var(--text-xs);
+}
+
+.setting-input-group {
+  display: flex;
+  align-items: center;
+  gap: var(--space-xs);
+}
+
+.setting-input {
+  width: 60px;
+  padding: 4px 8px;
+  font-size: var(--text-xs);
+  font-family: var(--font-mono);
+  color: var(--text-primary);
+  background: var(--bg-deep);
+  border: 1px solid var(--border-color);
+  border-radius: var(--border-radius-sm);
+  text-align: right;
+}
+
+.setting-input:focus {
+  outline: none;
+  border-color: var(--accent-primary);
+}
+
+.setting-input:disabled {
+  opacity: 0.5;
+}
+
+.setting-hint {
+  color: var(--text-dim);
+  font-size: 10px;
 }
 
 .prompt-content {

@@ -165,7 +165,7 @@ fn gatherContext(allocator: std.mem.Allocator, app: *App, pid: i64) !TurnContext
     const recent = try app.store.loadRecentMessages(
         allocator,
         pid,
-        app.sys.max_recent_messages_llm,
+        app.max_recent_messages,
     );
     errdefer {
         for (recent) |m| allocator.free(@constCast(m.content));
@@ -264,7 +264,7 @@ fn runReflection(
     const recent_for_reflection = try app.store.loadRecentMessages(
         allocator,
         pid,
-        app.sys.max_recent_messages_llm,
+        app.max_recent_messages,
     );
     defer {
         for (recent_for_reflection) |m| allocator.free(@constCast(m.content));
@@ -359,6 +359,7 @@ fn storeLastContext(
         .system_prompt = app.last_context_prompt_buf[0..copy_len],
         .memory_count = ctx.memory.len,
         .recent_count = ctx.recent.len,
+        .max_recent_messages = app.max_recent_messages,
         .timestamp_ms = ctx.now_ms,
     };
 }

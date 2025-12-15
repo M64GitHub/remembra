@@ -1,5 +1,5 @@
 <script setup>
-import { ref, watch, nextTick, onMounted } from 'vue'
+import { ref, watch, nextTick, onMounted, computed } from 'vue'
 import MessageBubble from './MessageBubble.vue'
 
 const props = defineProps({
@@ -10,6 +10,16 @@ const props = defineProps({
   isLoading: Boolean,
   hasMore: Boolean,
   isSending: Boolean,
+  maxRecentMessages: {
+    type: Number,
+    default: 24,
+  },
+})
+
+const inContextFlags = computed(() => {
+  const total = props.messages.length
+  const contextStart = Math.max(0, total - props.maxRecentMessages)
+  return props.messages.map((_, index) => index >= contextStart)
 })
 
 const emit = defineEmits(['load-more'])
@@ -71,9 +81,10 @@ onMounted(() => {
 
     <div class="messages-container">
       <MessageBubble
-        v-for="msg in messages"
+        v-for="(msg, index) in messages"
         :key="msg.id"
         :message="msg"
+        :in-context="inContextFlags[index]"
       />
     </div>
 

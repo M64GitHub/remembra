@@ -118,6 +118,7 @@ pub const MemoryStoreSqlite = struct {
         try self.setMetaDefault("last_idle_think_ms", "0");
         try self.setMetaDefault("active_provider_id", "0");
         try self.setMetaDefault("active_persona_id", "0");
+        try self.setMetaDefault("max_recent_messages", "24");
         try self.seedDefaultProfiles();
     }
 
@@ -1512,6 +1513,16 @@ pub const MemoryStoreSqlite = struct {
         } else {
             try self.setMetaI64("active_persona_id", 0);
         }
+    }
+
+    pub fn getMaxRecentMessages(self: *MemoryStoreSqlite) usize {
+        const val = self.getMetaI64("max_recent_messages") catch return 24;
+        if (val <= 0) return 24;
+        return @intCast(val);
+    }
+
+    pub fn setMaxRecentMessages(self: *MemoryStoreSqlite, count: usize) !void {
+        try self.setMetaI64("max_recent_messages", @intCast(count));
     }
 };
 

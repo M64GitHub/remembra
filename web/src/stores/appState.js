@@ -6,6 +6,7 @@ export const appState = reactive({
   isChatBusy: false,
   activeAiName: '...',
   activePersonaId: null,
+  maxRecentMessages: 24,
 })
 
 // Reload callback registry for sequential persona change reloads

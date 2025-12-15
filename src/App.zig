@@ -18,6 +18,7 @@ pub const LastContext = struct {
     system_prompt: []const u8 = "",
     memory_count: usize = 0,
     recent_count: usize = 0,
+    max_recent_messages: usize = 24,
     timestamp_ms: i64 = 0,
 };
 
@@ -29,6 +30,7 @@ pub const App = struct {
     conn: ConfigConn,
     sys: ConfigSys,
     ident: ConfigIdent,
+    max_recent_messages: usize = 24,
     last_context: LastContext = .{},
     last_context_prompt_buf: [32768]u8 = undefined,
 
@@ -66,6 +68,8 @@ pub const App = struct {
         try store.ensureSchema();
         cli.msg(.ok, "SQLite store: {s}", .{conn.database_path});
 
+        const max_recent = store.getMaxRecentMessages();
+
         return App{
             .cli = cli,
             .store = store,
@@ -74,11 +78,17 @@ pub const App = struct {
             .conn = conn,
             .sys = sys,
             .ident = ident,
+            .max_recent_messages = max_recent,
         };
     }
 
     pub fn initEvents(self: *App) void {
         self.events = EventSystem.init(&self.store, null);
+    }
+
+    pub fn setMaxRecentMessages(self: *App, count: usize) !void {
+        try self.store.setMaxRecentMessages(count);
+        self.max_recent_messages = count;
     }
 
     pub fn deinit(self: *App, allocator: std.mem.Allocator) void {

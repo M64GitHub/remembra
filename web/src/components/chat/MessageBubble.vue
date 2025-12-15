@@ -7,6 +7,10 @@ const props = defineProps({
     type: Object,
     required: true,
   },
+  inContext: {
+    type: Boolean,
+    default: true,
+  },
 })
 
 const showTimestamp = ref(false)
@@ -70,11 +74,16 @@ async function copyContent() {
       system: isSystem,
       pending: message.pending,
       error: message.error,
+      'out-of-context': !inContext,
     }"
     @click="showTimestamp = !showTimestamp"
   >
     <div class="message-header" v-if="!isUser">
       <span class="message-role">{{ isSystem ? 'SYSTEM' : appState.activeAiName }}</span>
+      <span class="context-indicator" v-if="inContext" title="In context window">&#x25CB;</span>
+    </div>
+    <div class="message-header user-header" v-else>
+      <span class="context-indicator" v-if="inContext" title="In context window">&#x25CB;</span>
     </div>
 
     <div class="message-content">
@@ -140,6 +149,10 @@ async function copyContent() {
   opacity: 0.7;
 }
 
+.message-bubble.out-of-context {
+  opacity: 0.6;
+}
+
 .message-bubble.error {
   border-color: var(--error);
   background: var(--error-dim);
@@ -150,7 +163,25 @@ async function copyContent() {
 }
 
 .message-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
   margin-bottom: var(--space-xs);
+}
+
+.message-header.user-header {
+  justify-content: flex-end;
+  margin-bottom: 0;
+}
+
+.context-indicator {
+  font-size: var(--text-xs);
+  color: var(--accent-primary);
+  opacity: 0.7;
+}
+
+.user .context-indicator {
+  color: rgba(255, 255, 255, 0.7);
 }
 
 .message-role {

@@ -22,6 +22,7 @@ const iconMap = {
   memory: '\u{2B21}',
   thoughts: '\u{25C7}',
   profiles: 'P',
+  context: '\u{25CB}',
 }
 
 function toggle() {

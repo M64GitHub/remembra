@@ -153,6 +153,14 @@ fn handleRequest(
         try handleGetPrompts(allocator, app, request);
     } else if (method == .POST and std.mem.eql(u8, target, "/api/prompts")) {
         try handlePostPrompt(allocator, app, request);
+    } else if (method == .GET and
+        std.mem.eql(u8, target, "/api/system/context-window"))
+    {
+        try handleGetContextWindow(app, request);
+    } else if (method == .POST and
+        std.mem.eql(u8, target, "/api/system/context-window"))
+    {
+        try handlePostContextWindow(allocator, app, request);
     } else if (method == .GET) {
         try handleStaticFile(allocator, request);
     } else {
@@ -831,17 +839,97 @@ fn handleGetContext(
 
     try out.writer(allocator).print(
         "{{\"system_prompt\":\"{s}\",\"memory_count\":{d}," ++
-            "\"recent_count\":{d},\"timestamp_ms\":{d}}}",
+            "\"recent_count\":{d},\"max_recent_messages\":{d}," ++
+            "\"timestamp_ms\":{d}}}",
         .{
             escaped_prompt,
             ctx.memory_count,
             ctx.recent_count,
+            ctx.max_recent_messages,
             ctx.timestamp_ms,
         },
     );
 
     const json = try out.toOwnedSlice(allocator);
     defer allocator.free(json);
+
+    try respondJson(request, json);
+}
+
+fn handleGetContextWindow(
+    app: *App,
+    request: *std.http.Server.Request,
+) !void {
+    var buf: [64]u8 = undefined;
+    const json = std.fmt.bufPrint(
+        &buf,
+        "{{\"max_recent_messages\":{d}}}",
+        .{app.max_recent_messages},
+    ) catch return respondError(request, .internal_server_error, "Format error");
+
+    try respondJson(request, json);
+}
+
+fn handlePostContextWindow(
+    allocator: std.mem.Allocator,
+    app: *App,
+    request: *std.http.Server.Request,
+) !void {
+    const content_len = request.head.content_length orelse {
+        try respondError(request, .bad_request, "Missing Content-Length");
+        return;
+    };
+
+    if (content_len > READ_BUFFER_SIZE) {
+        try respondError(request, .payload_too_large, "Payload too large");
+        return;
+    }
+
+    var body_buf: [READ_BUFFER_SIZE]u8 = undefined;
+    const body_reader = request.readerExpectNone(&body_buf);
+
+    const body = body_reader.readAlloc(allocator, @intCast(content_len)) catch {
+        try respondError(request, .bad_request, "Failed to read body");
+        return;
+    };
+    defer allocator.free(body);
+
+    var parsed = std.json.parseFromSlice(
+        std.json.Value,
+        allocator,
+        body,
+        .{},
+    ) catch {
+        try respondError(request, .bad_request, "Invalid JSON");
+        return;
+    };
+    defer parsed.deinit();
+
+    const root = parsed.value.object;
+    const value_node = root.get("value") orelse {
+        try respondError(request, .bad_request, "Missing 'value' field");
+        return;
+    };
+
+    const value: usize = switch (value_node) {
+        .integer => |i| if (i > 0) @intCast(i) else 1,
+        else => {
+            try respondError(request, .bad_request, "'value' must be an integer");
+            return;
+        },
+    };
+
+    app.setMaxRecentMessages(value) catch {
+        try respondError(request, .internal_server_error, "Failed to save");
+        return;
+    };
+
+    var buf: [128]u8 = undefined;
+    const json = std.fmt.bufPrint(
+        &buf,
+        "{{\"success\":true,\"max_recent_messages\":{d}}}",
+        .{app.max_recent_messages},
+    ) catch return respondError(request, .internal_server_error, "Format error");
 
     try respondJson(request, json);
 }

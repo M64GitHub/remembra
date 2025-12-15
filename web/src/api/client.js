@@ -120,3 +120,8 @@ export const health = {
 export const command = {
   execute: (cmd) => post('/api/command', { command: cmd }),
 };
+
+export const systemConfig = {
+  getContextWindow: () => get('/api/system/context-window'),
+  setContextWindow: (value) => post('/api/system/context-window', { value }),
+};

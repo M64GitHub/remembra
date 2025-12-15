@@ -69,7 +69,7 @@ function saveSidebarState() {
         :open="rightSidebarOpen"
         @toggle="toggleRightSidebar(); saveSidebarState()"
       >
-        <Panel title="Context" :default-open="true">
+        <Panel title="Context" icon="context" :default-open="true">
           <ContextViewer />
         </Panel>
         <Panel title="Events" :default-open="true">
