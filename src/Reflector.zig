@@ -26,6 +26,7 @@ pub const Reflector = struct {
     pub fn run(
         allocator: std.mem.Allocator,
         provider: anytype,
+        persona_id: i64,
         identity: []const Types.IdentityEntry,
         memory: []const Types.MemoryItem,
         recent: []const Types.Message,
@@ -79,6 +80,7 @@ pub const Reflector = struct {
 
         for (proposals) |p| {
             events.emitFmt(
+                persona_id,
                 .memory_proposed,
                 p.subject,
                 "{s}.{s}={s} conf={d:.2}",

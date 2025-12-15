@@ -21,6 +21,7 @@ pub const IdleThinker = struct {
         allocator: std.mem.Allocator,
         provider: anytype,
         store: anytype,
+        persona_id: i64,
         policy: MemoryPolicy,
         cli: *Cli,
         events: *EventSystem,
@@ -44,6 +45,7 @@ pub const IdleThinker = struct {
                 allocator,
                 provider,
                 store,
+                persona_id,
                 now_ms,
                 llm_idle,
                 prompts,
@@ -51,7 +53,7 @@ pub const IdleThinker = struct {
             );
             defer allocator.free(thought);
 
-            _ = try store.addMemoryGoverned(allocator, policy, .{
+            _ = try store.addMemoryGoverned(allocator, persona_id, policy, .{
                 .kind = .note,
                 .subject = "self",
                 .predicate = "thought",
@@ -62,10 +64,10 @@ pub const IdleThinker = struct {
 
             store.setLastIdleThinkMs(now_ms);
             cli.msg(.inf, "Idle thinker: stored self.thought", .{});
-            events.emit(.thought_generated, "self", thought);
+            events.emit(persona_id, .thought_generated, "self", thought);
         }
 
-        const new_count = store.countMessagesSinceCutoff();
+        const new_count = store.countMessagesSinceCutoff(persona_id);
         if (new_count >= params.min_msgs_for_compaction) {
             cli.msg(
                 .inf,
@@ -73,7 +75,11 @@ pub const IdleThinker = struct {
                 .{new_count},
             );
 
-            const ep_msgs = try store.loadMessagesSinceCutoff(allocator, 400);
+            const ep_msgs = try store.loadMessagesSinceCutoff(
+                allocator,
+                persona_id,
+                400,
+            );
             defer {
                 for (ep_msgs) |m| allocator.free(@constCast(m.content));
                 allocator.free(ep_msgs);
@@ -100,7 +106,7 @@ pub const IdleThinker = struct {
                 );
                 defer allocator.free(combined);
 
-                _ = try store.addMemoryGoverned(allocator, policy, .{
+                _ = try store.addMemoryGoverned(allocator, persona_id, policy, .{
                     .kind = .note,
                     .subject = "episode",
                     .predicate = "summary",
@@ -109,13 +115,13 @@ pub const IdleThinker = struct {
                     .is_active = true,
                 });
 
-                store.advanceEpisodeCutoffToEnd();
+                store.advanceEpisodeCutoffToEnd(persona_id);
                 cli.msg(
                     .ok,
                     "Idle thinker: episode summary stored and cutoff advanced.",
                     .{},
                 );
-                events.emit(.episode_compacted, "episode", ep.title);
+                events.emit(persona_id, .episode_compacted, "episode", ep.title);
             }
         }
     }
@@ -134,6 +140,7 @@ pub const IdleThinker = struct {
         allocator: std.mem.Allocator,
         provider: anytype,
         store: anytype,
+        persona_id: i64,
         now_ms: i64,
         llm_params: LlmParams,
         prompts: PromptTemplates,
@@ -142,6 +149,7 @@ pub const IdleThinker = struct {
         const prompt = try buildThoughtPrompt(
             allocator,
             store,
+            persona_id,
             now_ms,
             prompts.idle_thinker,
             ai_name,
@@ -173,6 +181,7 @@ pub const IdleThinker = struct {
     fn buildThoughtPrompt(
         allocator: std.mem.Allocator,
         store: anytype,
+        persona_id: i64,
         now_ms: i64,
         idle_template: []const u8,
         ai_name: []const u8,
@@ -187,7 +196,7 @@ pub const IdleThinker = struct {
         try out.appendSlice(allocator, idle_template);
         try out.appendSlice(allocator, "\n\n");
 
-        const recent = try store.loadRecentMessages(allocator, 6);
+        const recent = try store.loadRecentMessages(allocator, persona_id, 6);
         defer {
             for (recent) |m| allocator.free(@constCast(m.content));
             allocator.free(recent);

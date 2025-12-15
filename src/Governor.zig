@@ -21,6 +21,7 @@ pub const Governor = struct {
     pub fn apply(
         allocator: std.mem.Allocator,
         store: anytype,
+        persona_id: i64,
         policy: MemoryPolicy,
         proposals: []const ReflectionProposal,
         cli: *Cli,
@@ -38,6 +39,7 @@ pub const Governor = struct {
                     @errorName(err),
                 });
                 events.emitFmt(
+                    persona_id,
                     .governor_blocked,
                     p.subject,
                     "validation: {s}",
@@ -47,6 +49,7 @@ pub const Governor = struct {
             };
 
             const last_time = store.lastActiveMemoryTimeForKey(
+                persona_id,
                 p.kind,
                 p.subject,
                 p.predicate,
@@ -62,23 +65,24 @@ pub const Governor = struct {
                             @divFloor(params.rate_limit_ms - (now - t), 1000),
                         },
                     );
-                    events.emit(.governor_blocked, p.subject, "rate-limited");
+                    events.emit(persona_id, .governor_blocked, p.subject, "rate-limited");
                     continue;
                 }
             }
 
             if (store.hasActiveMemoryExact(
+                persona_id,
                 p.kind,
                 p.subject,
                 p.predicate,
                 p.object,
             )) {
                 cli.msg(.inf, "[Governor] dedupe: already stored", .{});
-                events.emit(.governor_blocked, p.subject, "duplicate");
+                events.emit(persona_id, .governor_blocked, p.subject, "duplicate");
                 continue;
             }
 
-            const id = try store.addMemoryGoverned(allocator, policy, .{
+            const id = try store.addMemoryGoverned(allocator, persona_id, policy, .{
                 .kind = p.kind,
                 .subject = p.subject,
                 .predicate = p.predicate,
@@ -88,8 +92,9 @@ pub const Governor = struct {
             });
 
             cli.msg(.ok, "[Governor] accepted -> stored as [mem#{d}]", .{id});
-            events.emitFmt(.governor_accepted, p.subject, "id={d}", .{id});
+            events.emitFmt(persona_id, .governor_accepted, p.subject, "id={d}", .{id});
             events.emitFmt(
+                persona_id,
                 .memory_stored,
                 p.subject,
                 "{s}.{s}={s}",

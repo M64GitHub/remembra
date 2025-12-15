@@ -21,11 +21,13 @@ pub const EventSystem = struct {
 
     pub fn emit(
         self: *EventSystem,
+        persona_id: i64,
         kind: EventKind,
         subject: []const u8,
         details: []const u8,
     ) void {
         _ = self.store.insertEvent(
+            persona_id,
             kind,
             subject,
             details,
@@ -35,6 +37,7 @@ pub const EventSystem = struct {
 
     pub fn emitFmt(
         self: *EventSystem,
+        persona_id: i64,
         kind: EventKind,
         subject: []const u8,
         comptime fmt: []const u8,
@@ -42,17 +45,18 @@ pub const EventSystem = struct {
     ) void {
         var buf: [1024]u8 = undefined;
         const details = std.fmt.bufPrint(&buf, fmt, args) catch "(fmt error)";
-        self.emit(kind, subject, details);
+        self.emit(persona_id, kind, subject, details);
     }
 
     pub fn query(
         self: *EventSystem,
         allocator: std.mem.Allocator,
+        persona_id: i64,
         since_ms: ?i64,
         kind_filter: ?EventKind,
         limit: usize,
     ) ![]Event {
-        return self.store.queryEvents(allocator, since_ms, kind_filter, limit);
+        return self.store.queryEvents(allocator, persona_id, since_ms, kind_filter, limit);
     }
 };
 

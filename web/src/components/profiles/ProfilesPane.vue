@@ -1,7 +1,7 @@
 <script setup>
 import { ref, onMounted, watch } from 'vue'
 import { profiles as profilesApi } from '../../api/client.js'
-import { appState } from '../../stores/appState.js'
+import { appState, reloadAllData } from '../../stores/appState.js'
 import ProviderCard from './ProviderCard.vue'
 import PersonaCard from './PersonaCard.vue'
 import PersonaEditorModal from './PersonaEditorModal.vue'
@@ -57,6 +57,7 @@ async function loadProfiles() {
     }
     const active = personas.value.find(p => p.id === activeIds.value.persona_id)
     appState.activeAiName = active?.ai_name || '...'
+    appState.activePersonaId = activeIds.value.persona_id
     console.log('[Profiles] Loaded', providers.value.length, 'providers,',
                 personas.value.length, 'personas,',
                 'active IDs:', activeIds.value)
@@ -74,6 +75,11 @@ async function setActive(providerId, personaId) {
     activeIds.value = { provider_id: providerId, persona_id: personaId }
     const active = personas.value.find(p => p.id === personaId)
     appState.activeAiName = active?.ai_name || '...'
+    appState.activePersonaId = personaId
+
+    // Sequential reload all registered components
+    await reloadAllData()
+
     await loadProfiles()
   } catch (e) {
     error.value = e.message

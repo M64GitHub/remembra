@@ -1,7 +1,7 @@
 <script setup>
-import { ref, onMounted, computed, watch } from 'vue'
+import { ref, onMounted, onUnmounted, computed, watch } from 'vue'
 import { context as contextApi } from '../../api/client.js'
-import { appState } from '../../stores/appState.js'
+import { appState, registerReload } from '../../stores/appState.js'
 
 const contextData = ref(null)
 const isLoading = ref(false)
@@ -65,8 +65,20 @@ watch(
   }
 )
 
+let unregisterReload = null
+
 onMounted(() => {
   setTimeout(loadContext, 2000)
+
+  // Register for persona change reloads
+  unregisterReload = registerReload('context', async () => {
+    contextData.value = null
+    await loadContext()
+  })
+})
+
+onUnmounted(() => {
+  if (unregisterReload) unregisterReload()
 })
 </script>
 

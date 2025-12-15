@@ -276,9 +276,11 @@ fn handleCommand(
     const cmd = cmd_val.string;
     app.cli.msg(.inf, "Command: {s}", .{cmd});
 
+    const pid = app.store.getActivePersonaId() orelse 1;
+
     // Handle /help specially - return custom help text
     if (std.mem.eql(u8, cmd, "/help")) {
-        _ = app.store.insertEvent(.command_executed, "user", cmd, null) catch {};
+        _ = app.store.insertEvent(pid, .command_executed, "user", cmd, null) catch {};
         try respondJson(request,
             "{\"status\":\"ok\",\"output\":" ++
             "\"Commands:\\n" ++
@@ -293,10 +295,10 @@ fn handleCommand(
 
     // Handle /db stats - return actual stats
     if (std.mem.eql(u8, cmd, "/db stats")) {
-        _ = app.store.insertEvent(.command_executed, "user", cmd, null) catch {};
-        const msg_count = app.store.countMessages() catch 0;
-        const mem_count = app.store.countMemories() catch 0;
-        const active_count = app.store.countActiveMemories() catch 0;
+        _ = app.store.insertEvent(pid, .command_executed, "user", cmd, null) catch {};
+        const msg_count = app.store.countMessages(pid) catch 0;
+        const mem_count = app.store.countMemories(pid) catch 0;
+        const active_count = app.store.countActiveMemories(pid) catch 0;
 
         var out_buf: [512]u8 = undefined;
         const output = std.fmt.bufPrint(&out_buf,
@@ -320,7 +322,7 @@ fn handleCommand(
             return;
         };
         app.store.advanceTimeHours(hours);
-        _ = app.store.insertEvent(.command_executed, "user", cmd, null) catch {};
+        _ = app.store.insertEvent(pid, .command_executed, "user", cmd, null) catch {};
 
         var out_buf: [256]u8 = undefined;
         const output = std.fmt.bufPrint(&out_buf,
@@ -346,7 +348,7 @@ fn handleCommand(
                 "{\"status\":\"error\",\"output\":\"Failed to store memory.\"}");
             return;
         };
-        _ = app.store.insertEvent(.command_executed, "user", cmd, null) catch {};
+        _ = app.store.insertEvent(pid, .command_executed, "user", cmd, null) catch {};
         try respondJson(request,
             "{\"status\":\"ok\",\"output\":\"Memory stored.\"}");
         return;
@@ -367,7 +369,7 @@ fn handleCommand(
                 "{\"status\":\"error\",\"output\":\"Failed to decay memory.\"}");
             return;
         };
-        _ = app.store.insertEvent(.command_executed, "user", cmd, null) catch {};
+        _ = app.store.insertEvent(pid, .command_executed, "user", cmd, null) catch {};
 
         var out_buf: [256]u8 = undefined;
         const output = std.fmt.bufPrint(&out_buf,
@@ -479,11 +481,12 @@ fn handleGetMemories(
 ) !void {
     const target = request.head.target;
     const show_all = std.mem.indexOf(u8, target, "all=true") != null;
+    const pid = app.store.getActivePersonaId() orelse 1;
 
     const memories = if (show_all)
-        try app.store.loadAllMemoryItems(allocator)
+        try app.store.loadAllMemoryItems(allocator, pid)
     else
-        try app.store.loadMemoryItems(allocator, 100);
+        try app.store.loadMemoryItems(allocator, pid, 100);
 
     defer {
         for (memories) |m| {
@@ -534,7 +537,8 @@ fn handlePostMemory(
         allocator.free(mem_input.object);
     }
 
-    const id = app.store.addMemory(allocator, .{
+    const pid = app.store.getActivePersonaId() orelse 1;
+    const id = app.store.addMemory(allocator, pid, .{
         .kind = mem_input.kind,
         .subject = mem_input.subject,
         .predicate = mem_input.predicate,
@@ -573,7 +577,8 @@ fn handleDeleteMemory(
         return;
     };
 
-    app.store.deactivateMemory(id) catch {
+    const pid = app.store.getActivePersonaId() orelse 1;
+    app.store.deactivateMemory(pid, id) catch {
         try respondError(request, .internal_server_error, "Deactivate failed");
         return;
     };
@@ -602,8 +607,10 @@ fn handleGetEvents(
         }
     }
 
+    const pid = app.store.getActivePersonaId() orelse 1;
     const events = try app.store.queryEvents(
         allocator,
+        pid,
         since_ms,
         kind_filter,
         limit,
@@ -628,7 +635,8 @@ fn handleGetThoughts(
     app: *App,
     request: *std.http.Server.Request,
 ) !void {
-    const memories = try app.store.loadAllMemoryItems(allocator);
+    const pid = app.store.getActivePersonaId() orelse 1;
+    const memories = try app.store.loadAllMemoryItems(allocator, pid);
     defer {
         for (memories) |m| {
             allocator.free(@constCast(m.subject));
@@ -660,7 +668,8 @@ fn handleGetEpisodes(
     app: *App,
     request: *std.http.Server.Request,
 ) !void {
-    const memories = try app.store.loadAllMemoryItems(allocator);
+    const pid = app.store.getActivePersonaId() orelse 1;
+    const memories = try app.store.loadAllMemoryItems(allocator, pid);
     defer {
         for (memories) |m| {
             allocator.free(@constCast(m.subject));
@@ -705,7 +714,8 @@ fn handleGetMessages(
         before_id = parseQueryInt(query, "before");
     }
 
-    const messages = try app.store.loadMessagesPage(allocator, limit + 1, before_id);
+    const pid = app.store.getActivePersonaId() orelse 1;
+    const messages = try app.store.loadMessagesPage(allocator, pid, limit + 1, before_id);
     defer {
         for (messages) |m| allocator.free(@constCast(m.content));
         allocator.free(messages);
