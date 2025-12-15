@@ -1,0 +1,316 @@
+<script setup>
+import { ref, onMounted, watch } from 'vue'
+import { profiles as profilesApi } from '../../api/client.js'
+import { appState } from '../../stores/appState.js'
+import ProviderCard from './ProviderCard.vue'
+import PersonaCard from './PersonaCard.vue'
+import PersonaEditorModal from './PersonaEditorModal.vue'
+
+const activeTab = ref('personas')
+const providers = ref([])
+const personas = ref([])
+const activeProfile = ref({ provider: null, persona: null })
+const activeIds = ref({ provider_id: null, persona_id: null })
+const isLoading = ref(false)
+const error = ref(null)
+
+const showPersonaModal = ref(false)
+const editingPersona = ref(null)
+const modalMode = ref('edit')
+
+const defaultPersona = {
+  name: '',
+  ai_name: 'REMEMBRA',
+  tone: 'helpful, concise, grounded, engaging',
+  llm_chat_temp: 0.7,
+  llm_chat_tokens: 256,
+  llm_reflect_temp: 0.2,
+  llm_reflect_tokens: 512,
+  llm_idle_temp: 0.4,
+  llm_idle_tokens: 160,
+  llm_episode_temp: 0.2,
+  llm_episode_tokens: 512,
+  conf_user_notes: 0.70,
+  conf_episodes: 0.85,
+  conf_idle: 0.55,
+  conf_governor: 0.60,
+}
+
+async function loadProfiles() {
+  if (isLoading.value || appState.isChatBusy) return
+
+  isLoading.value = true
+  error.value = null
+
+  try {
+    const [provData, persData, actData] = await Promise.all([
+      profilesApi.providers.list(),
+      profilesApi.personas.list(),
+      profilesApi.active.get(),
+    ])
+    providers.value = provData.providers || []
+    personas.value = persData.personas || []
+    activeProfile.value = actData || { provider: null, persona: null }
+    activeIds.value = {
+      provider_id: actData?.provider_id ?? null,
+      persona_id: actData?.persona_id ?? null,
+    }
+    const active = personas.value.find(p => p.id === activeIds.value.persona_id)
+    appState.activeAiName = active?.ai_name || '...'
+    console.log('[Profiles] Loaded', providers.value.length, 'providers,',
+                personas.value.length, 'personas,',
+                'active IDs:', activeIds.value)
+  } catch (e) {
+    console.error('[Profiles] Error:', e)
+    error.value = e.message
+  } finally {
+    isLoading.value = false
+  }
+}
+
+async function setActive(providerId, personaId) {
+  try {
+    await profilesApi.active.set(providerId, personaId)
+    activeIds.value = { provider_id: providerId, persona_id: personaId }
+    const active = personas.value.find(p => p.id === personaId)
+    appState.activeAiName = active?.ai_name || '...'
+    await loadProfiles()
+  } catch (e) {
+    error.value = e.message
+  }
+}
+
+async function deleteProvider(name) {
+  try {
+    await profilesApi.providers.remove(name)
+    providers.value = providers.value.filter(p => p.name !== name)
+  } catch (e) {
+    error.value = e.message
+  }
+}
+
+async function deletePersona(id) {
+  try {
+    await profilesApi.personas.remove(id)
+    personas.value = personas.value.filter(p => p.id !== id)
+  } catch (e) {
+    error.value = e.message
+  }
+}
+
+function openPersonaEditor(persona) {
+  editingPersona.value = { ...persona }
+  modalMode.value = 'edit'
+  showPersonaModal.value = true
+}
+
+function createNewPersona() {
+  editingPersona.value = { ...defaultPersona }
+  modalMode.value = 'create'
+  showPersonaModal.value = true
+}
+
+function closePersonaEditor() {
+  showPersonaModal.value = false
+  editingPersona.value = null
+  modalMode.value = 'edit'
+}
+
+async function savePersona(personaData) {
+  try {
+    if (modalMode.value === 'create') {
+      await profilesApi.personas.create(personaData)
+    } else {
+      await profilesApi.personas.update(personaData)
+    }
+    await loadProfiles()
+    closePersonaEditor()
+  } catch (e) {
+    error.value = e.message
+  }
+}
+
+onMounted(() => {
+  setTimeout(loadProfiles, 3500)
+})
+</script>
+
+<template>
+  <div class="profiles-pane">
+    <div class="profiles-tabs">
+      <button
+        class="tab-btn"
+        :class="{ active: activeTab === 'providers' }"
+        @click="activeTab = 'providers'"
+      >
+        Providers
+      </button>
+      <button
+        class="tab-btn"
+        :class="{ active: activeTab === 'personas' }"
+        @click="activeTab = 'personas'"
+      >
+        Personas
+      </button>
+      <button
+        @click="loadProfiles"
+        class="refresh-btn"
+        :disabled="isLoading || appState.isChatBusy"
+        title="Refresh"
+      >
+        &#x21BB;
+      </button>
+    </div>
+
+    <div class="profiles-error" v-if="error">
+      {{ error }}
+    </div>
+
+    <div class="profiles-content">
+      <div v-if="activeTab === 'providers'" class="profile-list">
+        <ProviderCard
+          v-for="provider in providers"
+          :key="provider.id"
+          :provider="provider"
+          :is-active="activeIds.provider_id === provider.id"
+          :can-delete="providers.length > 1"
+          @activate="setActive(provider.id, activeIds.persona_id)"
+          @delete="deleteProvider"
+        />
+        <div v-if="providers.length === 0 && !isLoading" class="empty-state">
+          No providers configured
+        </div>
+      </div>
+
+      <div v-if="activeTab === 'personas'" class="profile-list">
+        <button class="new-btn" @click="createNewPersona">+ New Persona</button>
+        <PersonaCard
+          v-for="persona in personas"
+          :key="persona.id"
+          :persona="persona"
+          :is-active="activeIds.persona_id === persona.id"
+          :can-delete="personas.length > 1"
+          @activate="setActive(activeIds.provider_id, persona.id)"
+          @delete="deletePersona"
+          @edit="openPersonaEditor"
+        />
+        <div v-if="personas.length === 0 && !isLoading" class="empty-state">
+          No personas configured
+        </div>
+      </div>
+
+      <div v-if="isLoading" class="loading-state">
+        Loading...
+      </div>
+    </div>
+
+    <PersonaEditorModal
+      v-if="showPersonaModal"
+      :persona="editingPersona"
+      :mode="modalMode"
+      @save="savePersona"
+      @cancel="closePersonaEditor"
+    />
+  </div>
+</template>
+
+<style scoped>
+.profiles-pane {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  font-size: var(--text-xs);
+}
+
+.profiles-tabs {
+  display: flex;
+  gap: 2px;
+  padding: var(--space-xs);
+  background: var(--bg-secondary);
+  border-bottom: var(--border-subtle);
+}
+
+.tab-btn {
+  flex: 1;
+  padding: 4px 8px;
+  background: var(--bg-tertiary);
+  border-radius: var(--border-radius-sm);
+  color: var(--text-secondary);
+  font-size: var(--text-xs);
+  transition: all var(--transition-fast);
+}
+
+.tab-btn:hover {
+  color: var(--text-primary);
+}
+
+.tab-btn.active {
+  background: var(--accent-primary);
+  color: white;
+}
+
+.refresh-btn {
+  width: 24px;
+  height: 24px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--border-radius-sm);
+  color: var(--text-muted);
+  font-size: 14px;
+  transition: all var(--transition-fast);
+}
+
+.refresh-btn:hover:not(:disabled) {
+  background: var(--bg-tertiary);
+  color: var(--text-primary);
+}
+
+.refresh-btn:disabled {
+  opacity: 0.5;
+}
+
+.profiles-error {
+  padding: var(--space-xs) var(--space-sm);
+  background: var(--error-dim);
+  color: var(--error);
+}
+
+.profiles-content {
+  flex: 1;
+  overflow-y: auto;
+  padding: var(--space-xs);
+}
+
+.profile-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-xs);
+}
+
+.empty-state,
+.loading-state {
+  text-align: center;
+  color: var(--text-dim);
+  padding: var(--space-lg);
+  font-style: italic;
+}
+
+.new-btn {
+  width: 100%;
+  padding: var(--space-sm);
+  background: var(--bg-tertiary);
+  border: 1px dashed var(--text-dim);
+  border-radius: var(--border-radius);
+  color: var(--text-secondary);
+  font-size: var(--text-xs);
+  transition: all var(--transition-fast);
+  margin-bottom: var(--space-xs);
+}
+
+.new-btn:hover {
+  border-color: var(--accent-primary);
+  color: var(--accent-primary);
+  background: var(--bg-secondary);
+}
+</style>

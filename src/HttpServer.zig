@@ -3,10 +3,12 @@
 const std = @import("std");
 const App = @import("App.zig").App;
 const ChatEngine = @import("ChatEngine.zig");
+const Commands = @import("Commands.zig");
 const Cli = @import("Cli.zig").Cli;
 const Types = @import("Types.zig");
 const MemoryStore = @import("MemoryStoreSqlite.zig");
 const EventKind = MemoryStore.EventKind;
+const ConfigIdentity = @import("ConfigIdentity.zig");
 
 const PORT: u16 = 8080;
 const READ_BUFFER_SIZE: usize = 16384;
@@ -87,8 +89,14 @@ fn handleRequest(
 
     if (method == .POST and std.mem.eql(u8, target, "/api/chat")) {
         try handleChat(allocator, app, request);
+    } else if (method == .POST and std.mem.eql(u8, target, "/api/command")) {
+        try handleCommand(allocator, app, request);
     } else if (method == .GET and std.mem.eql(u8, target, "/health")) {
         try respondJson(request, "{\"status\":\"ok\"}");
+    } else if (method == .GET and startsWith(target, "/api/messages")) {
+        try handleGetMessages(allocator, app, request);
+    } else if (method == .GET and std.mem.eql(u8, target, "/api/context")) {
+        try handleGetContext(allocator, app, request);
     } else if (method == .GET and startsWith(target, "/api/memories")) {
         try handleGetMemories(allocator, app, request);
     } else if (method == .POST and std.mem.eql(u8, target, "/api/memories")) {
@@ -121,6 +129,10 @@ fn handleRequest(
         std.mem.eql(u8, target, "/api/profiles/personas"))
     {
         try handlePostPersona(allocator, app, request);
+    } else if (method == .POST and
+        std.mem.eql(u8, target, "/api/profiles/personas/update"))
+    {
+        try handleUpdatePersona(allocator, app, request);
     } else if (method == .DELETE and
         startsWith(target, "/api/profiles/personas/"))
     {
@@ -133,6 +145,14 @@ fn handleRequest(
         std.mem.eql(u8, target, "/api/profiles/active"))
     {
         try handlePostActiveProfiles(allocator, app, request);
+    } else if (method == .GET and
+        std.mem.eql(u8, target, "/api/prompts/defaults"))
+    {
+        try handleGetDefaultPrompts(request);
+    } else if (method == .GET and startsWith(target, "/api/prompts")) {
+        try handleGetPrompts(allocator, app, request);
+    } else if (method == .POST and std.mem.eql(u8, target, "/api/prompts")) {
+        try handlePostPrompt(allocator, app, request);
     } else if (method == .GET) {
         try handleStaticFile(allocator, request);
     } else {
@@ -201,6 +221,168 @@ fn handleChat(
     try respondJson(request, response);
 }
 
+fn handleCommand(
+    allocator: std.mem.Allocator,
+    app: *App,
+    request: *std.http.Server.Request,
+) !void {
+    const content_len = request.head.content_length orelse {
+        try respondError(request, .bad_request, "Missing Content-Length");
+        return;
+    };
+
+    if (content_len > READ_BUFFER_SIZE) {
+        try respondError(request, .payload_too_large, "Request too large");
+        return;
+    }
+
+    var body_buf: [READ_BUFFER_SIZE]u8 = undefined;
+    const body_reader = request.readerExpectNone(&body_buf);
+
+    const body = body_reader.readAlloc(allocator, @intCast(content_len)) catch {
+        try respondError(request, .bad_request, "Failed to read body");
+        return;
+    };
+    defer allocator.free(body);
+
+    // Parse JSON: {"command": "/mem add text"}
+    var parsed = std.json.parseFromSlice(
+        std.json.Value,
+        allocator,
+        body,
+        .{},
+    ) catch {
+        try respondError(request, .bad_request, "Invalid JSON");
+        return;
+    };
+    defer parsed.deinit();
+
+    if (parsed.value != .object) {
+        try respondError(request, .bad_request, "Expected object");
+        return;
+    }
+    const root = parsed.value.object;
+
+    const cmd_val = root.get("command") orelse {
+        try respondError(request, .bad_request, "Missing 'command' field");
+        return;
+    };
+
+    if (cmd_val != .string) {
+        try respondError(request, .bad_request, "command must be string");
+        return;
+    }
+
+    const cmd = cmd_val.string;
+    app.cli.msg(.inf, "Command: {s}", .{cmd});
+
+    // Handle /help specially - return custom help text
+    if (std.mem.eql(u8, cmd, "/help")) {
+        _ = app.store.insertEvent(.command_executed, "user", cmd, null) catch {};
+        try respondJson(request,
+            "{\"status\":\"ok\",\"output\":" ++
+            "\"Commands:\\n" ++
+            "  /help              - Show this help\\n" ++
+            "  /mem add <text>    - Store a memory note\\n" ++
+            "  /mem decay <hours> - Simulate memory decay\\n" ++
+            "  /time advance <h>  - Advance simulated time\\n" ++
+            "  /db stats          - Show database statistics\"}"
+        );
+        return;
+    }
+
+    // Handle /db stats - return actual stats
+    if (std.mem.eql(u8, cmd, "/db stats")) {
+        _ = app.store.insertEvent(.command_executed, "user", cmd, null) catch {};
+        const msg_count = app.store.countMessages() catch 0;
+        const mem_count = app.store.countMemories() catch 0;
+        const active_count = app.store.countActiveMemories() catch 0;
+
+        var out_buf: [512]u8 = undefined;
+        const output = std.fmt.bufPrint(&out_buf,
+            "{{\"status\":\"ok\",\"output\":\"Database Stats:\\n" ++
+            "  Messages: {d}\\n" ++
+            "  Memories: {d} ({d} active)\"}}",
+            .{ msg_count, mem_count, active_count },
+        ) catch "{\"status\":\"ok\",\"output\":\"Stats unavailable\"}";
+
+        try respondJson(request, output);
+        return;
+    }
+
+    // Handle /time advance with validation
+    if (std.mem.startsWith(u8, cmd, "/time advance ")) {
+        const arg = cmd["/time advance ".len..];
+        const hours = std.fmt.parseInt(i64, arg, 10) catch {
+            try respondJson(request,
+                "{\"status\":\"error\",\"output\":" ++
+                "\"Invalid argument. Usage: /time advance <hours>\"}");
+            return;
+        };
+        app.store.advanceTimeHours(hours);
+        _ = app.store.insertEvent(.command_executed, "user", cmd, null) catch {};
+
+        var out_buf: [256]u8 = undefined;
+        const output = std.fmt.bufPrint(&out_buf,
+            "{{\"status\":\"ok\",\"output\":\"Time advanced by {d} hours.\"}}",
+            .{hours},
+        ) catch "{\"status\":\"ok\",\"output\":\"Time advanced.\"}";
+        try respondJson(request, output);
+        return;
+    }
+
+    // Handle /mem add with validation
+    if (std.mem.startsWith(u8, cmd, "/mem add ")) {
+        const text = cmd["/mem add ".len..];
+        if (text.len == 0) {
+            try respondJson(request,
+                "{\"status\":\"error\",\"output\":" ++
+                "\"No text provided. Usage: /mem add <text>\"}");
+            return;
+        }
+        // Execute the actual command
+        _ = Commands.execute(allocator, app, cmd) catch {
+            try respondJson(request,
+                "{\"status\":\"error\",\"output\":\"Failed to store memory.\"}");
+            return;
+        };
+        _ = app.store.insertEvent(.command_executed, "user", cmd, null) catch {};
+        try respondJson(request,
+            "{\"status\":\"ok\",\"output\":\"Memory stored.\"}");
+        return;
+    }
+
+    // Handle /mem decay with validation
+    if (std.mem.startsWith(u8, cmd, "/mem decay ")) {
+        const arg = cmd["/mem decay ".len..];
+        const hours = std.fmt.parseInt(i64, arg, 10) catch {
+            try respondJson(request,
+                "{\"status\":\"error\",\"output\":" ++
+                "\"Invalid argument. Usage: /mem decay <hours>\"}");
+            return;
+        };
+        // Execute the actual command
+        _ = Commands.execute(allocator, app, cmd) catch {
+            try respondJson(request,
+                "{\"status\":\"error\",\"output\":\"Failed to decay memory.\"}");
+            return;
+        };
+        _ = app.store.insertEvent(.command_executed, "user", cmd, null) catch {};
+
+        var out_buf: [256]u8 = undefined;
+        const output = std.fmt.bufPrint(&out_buf,
+            "{{\"status\":\"ok\",\"output\":\"Memory decayed by {d} hours.\"}}",
+            .{hours},
+        ) catch "{\"status\":\"ok\",\"output\":\"Memory decayed.\"}";
+        try respondJson(request, output);
+        return;
+    }
+
+    // Unknown command
+    try respondJson(request,
+        "{\"status\":\"error\",\"output\":\"Unknown command. Type /help\"}");
+}
+
 fn extractUserMessage(
     allocator: std.mem.Allocator,
     body: []const u8,
@@ -255,11 +437,13 @@ fn buildOllamaResponse(allocator: std.mem.Allocator, reply: []const u8) ![]u8 {
 }
 
 fn respondJson(request: *std.http.Server.Request, body: []const u8) !void {
+    request.head.keep_alive = false;
     try request.respond(body, .{
         .status = .ok,
         .extra_headers = &.{
             .{ .name = "Content-Type", .value = "application/json" },
             .{ .name = "Access-Control-Allow-Origin", .value = "*" },
+            .{ .name = "Connection", .value = "close" },
         },
     });
 }
@@ -277,11 +461,13 @@ fn respondError(
     ) catch
         "{\"error\":\"Unknown error\"}";
 
+    request.head.keep_alive = false;
     try request.respond(body, .{
         .status = status,
         .extra_headers = &.{
             .{ .name = "Content-Type", .value = "application/json" },
             .{ .name = "Access-Control-Allow-Origin", .value = "*" },
+            .{ .name = "Connection", .value = "close" },
         },
     });
 }
@@ -501,6 +687,102 @@ fn handleGetEpisodes(
     try respondJson(request, json);
 }
 
+fn handleGetMessages(
+    allocator: std.mem.Allocator,
+    app: *App,
+    request: *std.http.Server.Request,
+) !void {
+    const target = request.head.target;
+
+    var limit: usize = 50;
+    var before_id: ?i64 = null;
+
+    if (std.mem.indexOf(u8, target, "?")) |q_idx| {
+        const query = target[q_idx + 1 ..];
+        if (parseQueryInt(query, "limit")) |l| {
+            limit = @intCast(@min(l, 200));
+        }
+        before_id = parseQueryInt(query, "before");
+    }
+
+    const messages = try app.store.loadMessagesPage(allocator, limit + 1, before_id);
+    defer {
+        for (messages) |m| allocator.free(@constCast(m.content));
+        allocator.free(messages);
+    }
+
+    const has_more = messages.len > limit;
+    const display_msgs = if (has_more) messages[0..limit] else messages;
+
+    const json = try buildMessagesJson(allocator, display_msgs, has_more);
+    defer allocator.free(json);
+
+    try respondJson(request, json);
+}
+
+fn buildMessagesJson(
+    allocator: std.mem.Allocator,
+    messages: []const MemoryStore.MessageRow,
+    has_more: bool,
+) ![]u8 {
+    var out: std.ArrayList(u8) = .empty;
+    errdefer out.deinit(allocator);
+
+    try out.appendSlice(allocator, "{\"messages\":[");
+
+    for (messages, 0..) |m, i| {
+        if (i > 0) try out.append(allocator, ',');
+
+        const escaped = try escapeJsonString(allocator, m.content);
+        defer allocator.free(escaped);
+
+        const role_str = Types.roleToStr(m.role);
+
+        try out.writer(allocator).print(
+            "{{\"id\":{d},\"role\":\"{s}\",\"content\":\"{s}\"," ++
+                "\"created_at_ms\":{d}}}",
+            .{ m.id, role_str, escaped, m.created_at_ms },
+        );
+    }
+
+    try out.writer(allocator).print(
+        "],\"has_more\":{s}}}",
+        .{if (has_more) "true" else "false"},
+    );
+
+    return out.toOwnedSlice(allocator);
+}
+
+fn handleGetContext(
+    allocator: std.mem.Allocator,
+    app: *App,
+    request: *std.http.Server.Request,
+) !void {
+    const ctx = app.last_context;
+
+    var out: std.ArrayList(u8) = .empty;
+    errdefer out.deinit(allocator);
+
+    const escaped_prompt = try escapeJsonString(allocator, ctx.system_prompt);
+    defer allocator.free(escaped_prompt);
+
+    try out.writer(allocator).print(
+        "{{\"system_prompt\":\"{s}\",\"memory_count\":{d}," ++
+            "\"recent_count\":{d},\"timestamp_ms\":{d}}}",
+        .{
+            escaped_prompt,
+            ctx.memory_count,
+            ctx.recent_count,
+            ctx.timestamp_ms,
+        },
+    );
+
+    const json = try out.toOwnedSlice(allocator);
+    defer allocator.free(json);
+
+    try respondJson(request, json);
+}
+
 const MemoryInput = struct {
     kind: Types.MemoryKind,
     subject: []u8,
@@ -688,6 +970,7 @@ fn parseEventKind(s: []const u8) ?EventKind {
     if (std.mem.eql(u8, s, "context_built")) return .context_built;
     if (std.mem.eql(u8, s, "chat_completed")) return .chat_completed;
     if (std.mem.eql(u8, s, "security_warning")) return .security_warning;
+    if (std.mem.eql(u8, s, "command_executed")) return .command_executed;
     return null;
 }
 
@@ -838,6 +1121,19 @@ fn handlePostPersona(
         return;
     };
 
+    // Store default prompts for new persona
+    const defaults = ConfigIdentity.PromptTemplates{};
+    app.store.setPersonaPrompt(id, "system_spine", defaults.system_spine)
+        catch {};
+    app.store.setPersonaPrompt(id, "reflector_system", defaults.reflector_system)
+        catch {};
+    app.store.setPersonaPrompt(id, "reflector_no_ops", defaults.reflector_no_ops)
+        catch {};
+    app.store.setPersonaPrompt(id, "idle_thinker", defaults.idle_thinker)
+        catch {};
+    app.store.setPersonaPrompt(id, "episode_compactor", defaults.episode_compactor)
+        catch {};
+
     var buf: [64]u8 = undefined;
     const resp = std.fmt.bufPrint(&buf, "{{\"id\":{d}}}", .{id}) catch
         "{\"id\":0}";
@@ -868,6 +1164,48 @@ fn handleDeletePersona(
     app.store.deletePersonaProfile(id) catch {
         try respondError(request, .internal_server_error, "Delete failed");
         return;
+    };
+
+    try respondJson(request, "{\"success\":true}");
+}
+
+fn handleUpdatePersona(
+    allocator: std.mem.Allocator,
+    app: *App,
+    request: *std.http.Server.Request,
+) !void {
+    const content_len = request.head.content_length orelse {
+        try respondError(request, .bad_request, "Missing Content-Length");
+        return;
+    };
+
+    if (content_len > READ_BUFFER_SIZE) {
+        try respondError(request, .payload_too_large, "Request too large");
+        return;
+    }
+
+    var body_buf: [READ_BUFFER_SIZE]u8 = undefined;
+    const body_reader = request.readerExpectNone(&body_buf);
+
+    const body = body_reader.readAlloc(allocator, @intCast(content_len)) catch {
+        try respondError(request, .bad_request, "Failed to read body");
+        return;
+    };
+    defer allocator.free(body);
+
+    const profile = parsePersonaUpdateInput(allocator, body) catch {
+        try respondError(request, .bad_request, "Invalid JSON");
+        return;
+    };
+    defer MemoryStore.freePersonaStrings(allocator, profile);
+
+    app.store.updatePersonaProfile(profile) catch {
+        try respondError(request, .internal_server_error, "Update failed");
+        return;
+    };
+
+    app.reloadActivePersona(allocator) catch |err| {
+        app.cli.msg(.wrn, "Persona reload failed: {}", .{err});
     };
 
     try respondJson(request, "{\"success\":true}");
@@ -992,6 +1330,237 @@ fn handlePostActiveProfiles(
     try respondJson(request, "{\"success\":true}");
 }
 
+fn handleGetPrompts(
+    allocator: std.mem.Allocator,
+    app: *App,
+    request: *std.http.Server.Request,
+) !void {
+    const target = request.head.target;
+
+    var persona_id: ?i64 = null;
+    if (std.mem.indexOf(u8, target, "?")) |q_idx| {
+        const query = target[q_idx + 1 ..];
+        persona_id = parseQueryInt(query, "persona_id");
+    }
+
+    if (persona_id == null) {
+        try respondError(request, .bad_request, "Missing persona_id");
+        return;
+    }
+
+    var custom_prompts = try app.store.getPersonaPrompts(allocator, persona_id.?);
+    defer {
+        var iter = custom_prompts.iterator();
+        while (iter.next()) |entry| {
+            allocator.free(entry.key_ptr.*);
+            allocator.free(entry.value_ptr.*);
+        }
+        custom_prompts.deinit();
+    }
+
+    const json = try buildPromptsJson(allocator, &custom_prompts);
+    defer allocator.free(json);
+
+    try respondJson(request, json);
+}
+
+fn handlePostPrompt(
+    allocator: std.mem.Allocator,
+    app: *App,
+    request: *std.http.Server.Request,
+) !void {
+    const content_len = request.head.content_length orelse {
+        try respondError(request, .bad_request, "Missing Content-Length");
+        return;
+    };
+
+    if (content_len > READ_BUFFER_SIZE) {
+        try respondError(request, .payload_too_large, "Request too large");
+        return;
+    }
+
+    var body_buf: [READ_BUFFER_SIZE]u8 = undefined;
+    const body_reader = request.readerExpectNone(&body_buf);
+
+    const body = body_reader.readAlloc(allocator, @intCast(content_len)) catch {
+        try respondError(request, .bad_request, "Failed to read body");
+        return;
+    };
+    defer allocator.free(body);
+
+    var parsed = std.json.parseFromSlice(
+        std.json.Value,
+        allocator,
+        body,
+        .{},
+    ) catch {
+        try respondError(request, .bad_request, "Invalid JSON");
+        return;
+    };
+    defer parsed.deinit();
+
+    if (parsed.value != .object) {
+        try respondError(request, .bad_request, "Expected object");
+        return;
+    }
+    const root = parsed.value.object;
+
+    const pid_v = root.get("persona_id") orelse {
+        try respondError(request, .bad_request, "Missing persona_id");
+        return;
+    };
+    if (pid_v != .integer) {
+        try respondError(request, .bad_request, "Invalid persona_id");
+        return;
+    }
+
+    const name_v = root.get("name") orelse {
+        try respondError(request, .bad_request, "Missing name");
+        return;
+    };
+    if (name_v != .string) {
+        try respondError(request, .bad_request, "Invalid name");
+        return;
+    }
+
+    const content_v = root.get("content") orelse {
+        try respondError(request, .bad_request, "Missing content");
+        return;
+    };
+    if (content_v != .string) {
+        try respondError(request, .bad_request, "Invalid content");
+        return;
+    }
+
+    app.store.setPersonaPrompt(
+        pid_v.integer,
+        name_v.string,
+        content_v.string,
+    ) catch {
+        try respondError(request, .internal_server_error, "Failed to save");
+        return;
+    };
+
+    try respondJson(request, "{\"status\":\"ok\"}");
+}
+
+fn handleGetDefaultPrompts(
+    request: *std.http.Server.Request,
+) !void {
+    // Return default prompts from ConfigIdentity
+    const defaults = ConfigIdentity.PromptTemplates{};
+
+    // Build JSON at comptime since all values are comptime-known
+    const json = comptime blk: {
+        const d = ConfigIdentity.PromptTemplates{};
+        break :blk "{\"prompts\":{" ++
+            "\"system_spine\":" ++ escapeComptimeJson(d.system_spine) ++ "," ++
+            "\"reflector_system\":" ++ escapeComptimeJson(d.reflector_system) ++
+            "," ++
+            "\"reflector_no_ops\":" ++ escapeComptimeJson(d.reflector_no_ops) ++
+            "," ++
+            "\"idle_thinker\":" ++ escapeComptimeJson(d.idle_thinker) ++ "," ++
+            "\"episode_compactor\":" ++ escapeComptimeJson(d.episode_compactor) ++
+            "}}";
+    };
+    _ = defaults;
+
+    try respondJson(request, json);
+}
+
+fn escapeComptimeJson(comptime s: []const u8) []const u8 {
+    @setEvalBranchQuota(10000);
+    comptime {
+        var len: usize = 2; // quotes
+        for (s) |c| {
+            len += switch (c) {
+                '"', '\\' => 2,
+                '\n', '\r', '\t' => 2,
+                else => 1,
+            };
+        }
+
+        var buf: [len]u8 = undefined;
+        var i: usize = 0;
+        buf[i] = '"';
+        i += 1;
+
+        for (s) |c| {
+            switch (c) {
+                '"' => {
+                    buf[i] = '\\';
+                    buf[i + 1] = '"';
+                    i += 2;
+                },
+                '\\' => {
+                    buf[i] = '\\';
+                    buf[i + 1] = '\\';
+                    i += 2;
+                },
+                '\n' => {
+                    buf[i] = '\\';
+                    buf[i + 1] = 'n';
+                    i += 2;
+                },
+                '\r' => {
+                    buf[i] = '\\';
+                    buf[i + 1] = 'r';
+                    i += 2;
+                },
+                '\t' => {
+                    buf[i] = '\\';
+                    buf[i + 1] = 't';
+                    i += 2;
+                },
+                else => {
+                    buf[i] = c;
+                    i += 1;
+                },
+            }
+        }
+        buf[i] = '"';
+
+        return &buf;
+    }
+}
+
+fn buildPromptsJson(
+    allocator: std.mem.Allocator,
+    custom: *std.StringHashMap([]u8),
+) ![]u8 {
+    var out: std.ArrayList(u8) = .empty;
+    errdefer out.deinit(allocator);
+
+    try out.appendSlice(allocator, "{\"prompts\":{");
+
+    // Only return what's stored in DB - no defaults
+    const prompt_names = [_][]const u8{
+        "system_spine",
+        "reflector_system",
+        "reflector_no_ops",
+        "idle_thinker",
+        "episode_compactor",
+    };
+
+    var first = true;
+    for (prompt_names) |name| {
+        const value = custom.get(name) orelse "";
+        const escaped = try escapeJsonString(allocator, value);
+        defer allocator.free(escaped);
+
+        if (!first) try out.append(allocator, ',');
+        first = false;
+
+        try out.writer(allocator).print(
+            "\"{s}\":\"{s}\"",
+            .{ name, escaped },
+        );
+    }
+
+    try out.appendSlice(allocator, "}}");
+    return out.toOwnedSlice(allocator);
+}
+
 const ProviderInput = struct {
     name: []u8,
     ollama_url: []u8,
@@ -1052,6 +1621,60 @@ fn parsePersonaInput(
     if (tone_v != .string) return error.InvalidTone;
 
     return .{
+        .name = try allocator.dupe(u8, name_v.string),
+        .ai_name = try allocator.dupe(u8, ai_name_v.string),
+        .tone = try allocator.dupe(u8, tone_v.string),
+        .llm_chat = .{
+            .temperature = getJsonFloat(root, "llm_chat_temp") orelse 0.7,
+            .max_tokens = getJsonU32(root, "llm_chat_tokens") orelse 256,
+        },
+        .llm_reflection = .{
+            .temperature = getJsonFloat(root, "llm_reflect_temp") orelse 0.2,
+            .max_tokens = getJsonU32(root, "llm_reflect_tokens") orelse 512,
+        },
+        .llm_idle = .{
+            .temperature = getJsonFloat(root, "llm_idle_temp") orelse 0.4,
+            .max_tokens = getJsonU32(root, "llm_idle_tokens") orelse 160,
+        },
+        .llm_episode = .{
+            .temperature = getJsonFloat(root, "llm_episode_temp") orelse 0.2,
+            .max_tokens = getJsonU32(root, "llm_episode_tokens") orelse 512,
+        },
+        .conf_user_notes = getJsonFloat(root, "conf_user_notes") orelse 0.7,
+        .conf_episodes = getJsonFloat(root, "conf_episodes") orelse 0.85,
+        .conf_idle = getJsonFloat(root, "conf_idle") orelse 0.55,
+        .conf_governor = getJsonFloat(root, "conf_governor") orelse 0.6,
+    };
+}
+
+fn parsePersonaUpdateInput(
+    allocator: std.mem.Allocator,
+    body: []const u8,
+) !Types.PersonaProfile {
+    var parsed = try std.json.parseFromSlice(
+        std.json.Value,
+        allocator,
+        body,
+        .{},
+    );
+    defer parsed.deinit();
+
+    if (parsed.value != .object) return error.InvalidJson;
+    const root = parsed.value.object;
+
+    const id_v = root.get("id") orelse return error.MissingId;
+    if (id_v != .integer) return error.InvalidId;
+
+    const name_v = root.get("name") orelse return error.MissingName;
+    const ai_name_v = root.get("ai_name") orelse return error.MissingAiName;
+    const tone_v = root.get("tone") orelse return error.MissingTone;
+
+    if (name_v != .string) return error.InvalidName;
+    if (ai_name_v != .string) return error.InvalidAiName;
+    if (tone_v != .string) return error.InvalidTone;
+
+    return .{
+        .id = id_v.integer,
         .name = try allocator.dupe(u8, name_v.string),
         .ai_name = try allocator.dupe(u8, ai_name_v.string),
         .tone = try allocator.dupe(u8, tone_v.string),
@@ -1272,12 +1895,16 @@ fn respondWithMime(
     body: []const u8,
     mime: []const u8,
 ) !void {
+    // Disable keep-alive for static files - single-threaded server
+    // can't handle parallel connections otherwise
+    request.head.keep_alive = false;
     try request.respond(body, .{
         .status = .ok,
         .extra_headers = &.{
             .{ .name = "Content-Type", .value = mime },
             .{ .name = "Access-Control-Allow-Origin", .value = "*" },
             .{ .name = "Cache-Control", .value = "public, max-age=3600" },
+            .{ .name = "Connection", .value = "close" },
         },
     });
 }

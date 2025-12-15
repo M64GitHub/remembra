@@ -217,6 +217,8 @@ fn generateReply(
         allocator.free(model_msgs);
     }
 
+    storeLastContext(app, model_msgs, ctx);
+
     app.cli.msg(.dbg, "prompt total messages: {d}", .{model_msgs.len});
     for (model_msgs, 0..) |msg, i| {
         app.cli.msg(.dbg, "[{d}] {s}: {s}", .{
@@ -322,4 +324,25 @@ fn runReflection(
             }
         }
     }
+}
+
+fn storeLastContext(
+    app: *App,
+    model_msgs: []const Types.Message,
+    ctx: *const TurnContext,
+) void {
+    const system_prompt = if (model_msgs.len > 0 and model_msgs[0].role == .system)
+        model_msgs[0].content
+    else
+        "";
+
+    const copy_len = @min(system_prompt.len, app.last_context_prompt_buf.len);
+    @memcpy(app.last_context_prompt_buf[0..copy_len], system_prompt[0..copy_len]);
+
+    app.last_context = .{
+        .system_prompt = app.last_context_prompt_buf[0..copy_len],
+        .memory_count = ctx.memory.len,
+        .recent_count = ctx.recent.len,
+        .timestamp_ms = ctx.now_ms,
+    };
 }

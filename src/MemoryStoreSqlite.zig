@@ -5,6 +5,7 @@ const Types = @import("Types.zig");
 const MemoryPolicy = @import("MemoryPolicy.zig").MemoryPolicy;
 const sqlite = @import("sqlite.zig");
 const c = sqlite.c;
+const ConfigIdentity = @import("ConfigIdentity.zig");
 
 pub const SCHEMA =
     \\PRAGMA journal_mode=WAL;
@@ -116,22 +117,41 @@ pub const MemoryStoreSqlite = struct {
     }
 
     fn seedDefaultProfiles(self: *MemoryStoreSqlite) !void {
-        const count = try self.scalarI64(
+        // Provider: create if none exist
+        const prov_count = try self.scalarI64(
             "SELECT COUNT(*) FROM provider_profiles;",
         );
-        if (count == 0) {
-            _ = try self.createProviderProfile(
+        if (prov_count == 0) {
+            const provider_id = try self.createProviderProfile(
                 "local-ollama",
                 "http://127.0.0.1:11434",
                 "llama3.2",
             );
+            try self.setMetaI64("active_provider_id", provider_id);
         }
 
-        const pcount = try self.scalarI64(
-            "SELECT COUNT(*) FROM persona_profiles;",
-        );
-        if (pcount == 0) {
-            _ = try self.createPersonaProfile(.{
+        // Persona: check if we need to create a default
+        const need_default = blk: {
+            const count = try self.scalarI64(
+                "SELECT COUNT(*) FROM persona_profiles;",
+            );
+            if (count == 0) break :blk true;
+
+            const active_id = self.getActivePersonaId() orelse break :blk true;
+
+            // Check if active ID exists in DB
+            const stmt = try self.db.prepare(
+                "SELECT COUNT(*) FROM persona_profiles WHERE id = ?;",
+            );
+            defer sqlite.finalize(stmt);
+            sqlite.bindInt64(stmt, 1, active_id);
+            if (sqlite.step(stmt) != c.SQLITE_ROW) break :blk true;
+            const exists = sqlite.columnInt64(stmt, 0);
+            break :blk exists == 0;
+        };
+
+        if (need_default) {
+            const persona_id = try self.createPersonaProfile(.{
                 .name = "remembra-default",
                 .ai_name = "REMEMBRA",
                 .tone = "helpful, concise, grounded, engaging",
@@ -144,6 +164,20 @@ pub const MemoryStoreSqlite = struct {
                 .conf_idle = 0.55,
                 .conf_governor = 0.6,
             });
+            try self.setMetaI64("active_persona_id", persona_id);
+
+            // Store default prompts in DB
+            const defaults = ConfigIdentity.PromptTemplates{};
+            try self.setPersonaPrompt(persona_id, "system_spine",
+                defaults.system_spine);
+            try self.setPersonaPrompt(persona_id, "reflector_system",
+                defaults.reflector_system);
+            try self.setPersonaPrompt(persona_id, "reflector_no_ops",
+                defaults.reflector_no_ops);
+            try self.setPersonaPrompt(persona_id, "idle_thinker",
+                defaults.idle_thinker);
+            try self.setPersonaPrompt(persona_id, "episode_compactor",
+                defaults.episode_compactor);
         }
     }
 
@@ -323,6 +357,59 @@ pub const MemoryStoreSqlite = struct {
         const cutoff = self.getEpisodeCutoffIndex();
         if (cutoff > total) return 0;
         return total - cutoff;
+    }
+
+    pub fn loadMessagesPage(
+        self: *MemoryStoreSqlite,
+        allocator: std.mem.Allocator,
+        limit: usize,
+        before_id: ?i64,
+    ) ![]MessageRow {
+        var out: std.ArrayList(MessageRow) = .empty;
+        errdefer {
+            for (out.items) |m| allocator.free(@constCast(m.content));
+            out.deinit(allocator);
+        }
+
+        if (before_id) |bid| {
+            const stmt = try self.db.prepare(
+                "SELECT id, role, content, created_at_ms FROM messages " ++
+                    "WHERE id < ? ORDER BY id DESC LIMIT ?;",
+            );
+            defer sqlite.finalize(stmt);
+
+            sqlite.bindInt64(stmt, 1, bid);
+            sqlite.bindInt(stmt, 2, @intCast(limit));
+
+            while (sqlite.step(stmt) == c.SQLITE_ROW) {
+                try out.append(allocator, .{
+                    .id = sqlite.columnInt64(stmt, 0),
+                    .role = @enumFromInt(sqlite.columnInt(stmt, 1)),
+                    .content = try allocator.dupe(u8, sqlite.columnText(stmt, 2)),
+                    .created_at_ms = sqlite.columnInt64(stmt, 3),
+                });
+            }
+        } else {
+            const stmt = try self.db.prepare(
+                "SELECT id, role, content, created_at_ms FROM messages " ++
+                    "ORDER BY id DESC LIMIT ?;",
+            );
+            defer sqlite.finalize(stmt);
+
+            sqlite.bindInt(stmt, 1, @intCast(limit));
+
+            while (sqlite.step(stmt) == c.SQLITE_ROW) {
+                try out.append(allocator, .{
+                    .id = sqlite.columnInt64(stmt, 0),
+                    .role = @enumFromInt(sqlite.columnInt(stmt, 1)),
+                    .content = try allocator.dupe(u8, sqlite.columnText(stmt, 2)),
+                    .created_at_ms = sqlite.columnInt64(stmt, 3),
+                });
+            }
+        }
+
+        std.mem.reverse(MessageRow, out.items);
+        return try out.toOwnedSlice(allocator);
     }
 
     pub fn loadMessagesSinceCutoff(
@@ -780,6 +867,91 @@ pub const MemoryStoreSqlite = struct {
         return sqlite.columnInt64(stmt, 0);
     }
 
+    pub fn getPersonaPrompt(
+        self: *MemoryStoreSqlite,
+        allocator: std.mem.Allocator,
+        persona_id: i64,
+        name: []const u8,
+    ) !?[]u8 {
+        var key_buf: [128]u8 = undefined;
+        const key = std.fmt.bufPrint(
+            &key_buf,
+            "persona_{d}_prompt_{s}",
+            .{ persona_id, name },
+        ) catch return null;
+
+        const stmt = try self.db.prepare(
+            "SELECT value FROM meta WHERE key=?;",
+        );
+        defer sqlite.finalize(stmt);
+
+        sqlite.bindText(stmt, 1, key);
+
+        if (sqlite.step(stmt) != c.SQLITE_ROW) return null;
+
+        return try allocator.dupe(u8, sqlite.columnText(stmt, 0));
+    }
+
+    pub fn setPersonaPrompt(
+        self: *MemoryStoreSqlite,
+        persona_id: i64,
+        name: []const u8,
+        content: []const u8,
+    ) !void {
+        var key_buf: [128]u8 = undefined;
+        const key = std.fmt.bufPrint(
+            &key_buf,
+            "persona_{d}_prompt_{s}",
+            .{ persona_id, name },
+        ) catch return error.KeyTooLong;
+
+        const stmt = try self.db.prepare(
+            "INSERT INTO meta(key, value) VALUES(?, ?) " ++
+                "ON CONFLICT(key) DO UPDATE SET value=excluded.value;",
+        );
+        defer sqlite.finalize(stmt);
+
+        sqlite.bindText(stmt, 1, key);
+        sqlite.bindText(stmt, 2, content);
+
+        if (sqlite.step(stmt) != c.SQLITE_DONE) {
+            return error.SqliteStepFailed;
+        }
+    }
+
+    const PROMPT_NAMES = [_][]const u8{
+        "system_spine",
+        "reflector_system",
+        "reflector_no_ops",
+        "idle_thinker",
+        "episode_compactor",
+    };
+
+    pub fn getPersonaPrompts(
+        self: *MemoryStoreSqlite,
+        allocator: std.mem.Allocator,
+        persona_id: i64,
+    ) !std.StringHashMap([]u8) {
+        var prompts = std.StringHashMap([]u8).init(allocator);
+        errdefer {
+            var iter = prompts.iterator();
+            while (iter.next()) |entry| {
+                allocator.free(entry.key_ptr.*);
+                allocator.free(entry.value_ptr.*);
+            }
+            prompts.deinit();
+        }
+
+        for (PROMPT_NAMES) |name| {
+            if (try self.getPersonaPrompt(allocator, persona_id, name)) |val| {
+                const key = try allocator.dupe(u8, name);
+                try prompts.put(key, val);
+            }
+        }
+
+        return prompts;
+    }
+
     fn readMemoryRow(
         self: *MemoryStoreSqlite,
         allocator: std.mem.Allocator,
@@ -1072,6 +1244,43 @@ pub const MemoryStoreSqlite = struct {
         return self.db.lastInsertRowId();
     }
 
+    pub fn updatePersonaProfile(
+        self: *MemoryStoreSqlite,
+        profile: Types.PersonaProfile,
+    ) !void {
+        const stmt = try self.db.prepare(
+            "UPDATE persona_profiles SET name=?, ai_name=?, tone=?, " ++
+                "llm_chat_temp=?, llm_chat_tokens=?, " ++
+                "llm_reflect_temp=?, llm_reflect_tokens=?, " ++
+                "llm_idle_temp=?, llm_idle_tokens=?, " ++
+                "llm_episode_temp=?, llm_episode_tokens=?, " ++
+                "conf_user_notes=?, conf_episodes=?, conf_idle=?, " ++
+                "conf_governor=? WHERE id=?;",
+        );
+        defer sqlite.finalize(stmt);
+
+        sqlite.bindText(stmt, 1, profile.name);
+        sqlite.bindText(stmt, 2, profile.ai_name);
+        sqlite.bindText(stmt, 3, profile.tone);
+        sqlite.bindDouble(stmt, 4, profile.llm_chat.temperature);
+        sqlite.bindInt(stmt, 5, @intCast(profile.llm_chat.max_tokens));
+        sqlite.bindDouble(stmt, 6, profile.llm_reflection.temperature);
+        sqlite.bindInt(stmt, 7, @intCast(profile.llm_reflection.max_tokens));
+        sqlite.bindDouble(stmt, 8, profile.llm_idle.temperature);
+        sqlite.bindInt(stmt, 9, @intCast(profile.llm_idle.max_tokens));
+        sqlite.bindDouble(stmt, 10, profile.llm_episode.temperature);
+        sqlite.bindInt(stmt, 11, @intCast(profile.llm_episode.max_tokens));
+        sqlite.bindDouble(stmt, 12, profile.conf_user_notes);
+        sqlite.bindDouble(stmt, 13, profile.conf_episodes);
+        sqlite.bindDouble(stmt, 14, profile.conf_idle);
+        sqlite.bindDouble(stmt, 15, profile.conf_governor);
+        sqlite.bindInt64(stmt, 16, profile.id);
+
+        if (sqlite.step(stmt) != c.SQLITE_DONE) {
+            return error.SqliteStepFailed;
+        }
+    }
+
     pub fn getPersonaProfile(
         self: *MemoryStoreSqlite,
         allocator: std.mem.Allocator,
@@ -1247,6 +1456,7 @@ pub const EventKind = enum(u8) {
     context_built = 8,
     chat_completed = 9,
     security_warning = 10,
+    command_executed = 11,
 };
 
 pub const Event = struct {
@@ -1256,6 +1466,13 @@ pub const Event = struct {
     subject: []const u8,
     details: []const u8,
     session_id: ?[]const u8 = null,
+};
+
+pub const MessageRow = struct {
+    id: i64,
+    role: Types.Role,
+    content: []const u8,
+    created_at_ms: i64,
 };
 
 test "MemoryStoreSqlite schema creation" {

@@ -14,10 +14,9 @@ pub const PromptTemplates = struct {
         \\
         \\HARD RULES:
         \\- Memory below is READ-ONLY context.
-        \\- Do not claim you updated memory. NEVER! This is done by the
-        \\  Reflection Module. You can say you try to remember, not more.
-        \\- You will see memory updated later.
-        \\- The Module can not write memory unless the user explicitly asks.
+        \\- Do not claim you updated memory, because you can not.
+        \\- You will see memory updated by the memory system later if there was an update.
+        \\- The memory system can not write memory unless the user explicitly asks.
         \\- If you reference an existing memory item, cite it as [mem#ID].
     ,
 

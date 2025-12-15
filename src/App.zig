@@ -8,10 +8,18 @@ const ProviderOllama = @import("ProviderOllama.zig").ProviderOllama;
 const EventSystem = @import("EventSystem.zig").EventSystem;
 const Commands = @import("Commands.zig");
 const ChatEngine = @import("ChatEngine.zig");
+const Types = @import("Types.zig");
 
 const ConfigConn = @import("ConfigConnection.zig").ConfigConnection;
 const ConfigSys = @import("ConfigSystem.zig").ConfigSystem;
 const ConfigIdent = @import("ConfigIdentity.zig").ConfigIdentity;
+
+pub const LastContext = struct {
+    system_prompt: []const u8 = "",
+    memory_count: usize = 0,
+    recent_count: usize = 0,
+    timestamp_ms: i64 = 0,
+};
 
 pub const App = struct {
     cli: *Cli,
@@ -21,6 +29,22 @@ pub const App = struct {
     conn: ConfigConn,
     sys: ConfigSys,
     ident: ConfigIdent,
+    last_context: LastContext = .{},
+    last_context_prompt_buf: [32768]u8 = undefined,
+
+    // Buffers for persona data loaded from DB
+    persona_name_buf: [64]u8 = undefined,
+    persona_name_len: usize = 0,
+    prompt_system_spine_buf: [4096]u8 = undefined,
+    prompt_system_spine_len: usize = 0,
+    prompt_reflector_system_buf: [4096]u8 = undefined,
+    prompt_reflector_system_len: usize = 0,
+    prompt_reflector_no_ops_buf: [1024]u8 = undefined,
+    prompt_reflector_no_ops_len: usize = 0,
+    prompt_idle_thinker_buf: [2048]u8 = undefined,
+    prompt_idle_thinker_len: usize = 0,
+    prompt_episode_compactor_buf: [2048]u8 = undefined,
+    prompt_episode_compactor_len: usize = 0,
 
     pub fn init(allocator: std.mem.Allocator, cli: *Cli) !App {
         const conn = ConfigConn{};
@@ -98,6 +122,7 @@ pub const App = struct {
             return;
         defer MemStore.freePersonaStrings(allocator, profile);
 
+        // Update LLM parameters
         self.ident.llm_chat = .{
             .temperature = profile.llm_chat.temperature,
             .max_tokens = profile.llm_chat.max_tokens,
@@ -119,7 +144,80 @@ pub const App = struct {
         self.ident.confidence_idle_thoughts = profile.conf_idle;
         self.ident.confidence_min_governor = profile.conf_governor;
 
+        // Update AI name
+        const name_len = @min(profile.ai_name.len, self.persona_name_buf.len);
+        @memcpy(self.persona_name_buf[0..name_len], profile.ai_name[0..name_len]);
+        self.persona_name_len = name_len;
+        self.ident.name = self.persona_name_buf[0..self.persona_name_len];
+
+        // Load and update prompts from DB
+        var prompts = self.store.getPersonaPrompts(allocator, id) catch {
+            self.cli.msg(.wrn, "Failed to load prompts", .{});
+            return;
+        };
+        defer {
+            var iter = prompts.iterator();
+            while (iter.next()) |entry| {
+                allocator.free(entry.key_ptr.*);
+                allocator.free(entry.value_ptr.*);
+            }
+            prompts.deinit();
+        }
+
+        self.copyPromptToBuf(
+            &prompts,
+            "system_spine",
+            &self.prompt_system_spine_buf,
+            &self.prompt_system_spine_len,
+            &self.ident.prompts.system_spine,
+        );
+        self.copyPromptToBuf(
+            &prompts,
+            "reflector_system",
+            &self.prompt_reflector_system_buf,
+            &self.prompt_reflector_system_len,
+            &self.ident.prompts.reflector_system,
+        );
+        self.copyPromptToBuf(
+            &prompts,
+            "reflector_no_ops",
+            &self.prompt_reflector_no_ops_buf,
+            &self.prompt_reflector_no_ops_len,
+            &self.ident.prompts.reflector_no_ops,
+        );
+        self.copyPromptToBuf(
+            &prompts,
+            "idle_thinker",
+            &self.prompt_idle_thinker_buf,
+            &self.prompt_idle_thinker_len,
+            &self.ident.prompts.idle_thinker,
+        );
+        self.copyPromptToBuf(
+            &prompts,
+            "episode_compactor",
+            &self.prompt_episode_compactor_buf,
+            &self.prompt_episode_compactor_len,
+            &self.ident.prompts.episode_compactor,
+        );
+
         self.cli.msg(.inf, "Persona reloaded: {s}", .{profile.name});
+    }
+
+    fn copyPromptToBuf(
+        self: *App,
+        prompts: *std.StringHashMap([]u8),
+        name: []const u8,
+        buf: []u8,
+        len: *usize,
+        target: *[]const u8,
+    ) void {
+        _ = self;
+        if (prompts.get(name)) |val| {
+            const copy_len = @min(val.len, buf.len);
+            @memcpy(buf[0..copy_len], val[0..copy_len]);
+            len.* = copy_len;
+            target.* = buf[0..copy_len];
+        }
     }
 
     pub fn run(self: *App, allocator: std.mem.Allocator) !void {

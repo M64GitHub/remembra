@@ -21,5 +21,9 @@ pub fn main() !void {
     defer app.deinit(allocator);
     app.initEvents();
 
+    // Load active persona from DB at startup
+    app.reloadActiveProvider(allocator) catch {};
+    app.reloadActivePersona(allocator) catch {};
+
     try app.run(allocator);
 }

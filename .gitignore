@@ -1,4 +1,8 @@
 .zig-cache
 zig-out
 tmp/
+web/dist/
+package-lock.json
+web/.*
+
 
