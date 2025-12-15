@@ -4,9 +4,8 @@ const MemoryPolicy = @import("MemoryPolicy.zig").MemoryPolicy;
 const EpisodeCompactor = @import("EpisodeCompactor.zig").EpisodeCompactor;
 const Temporal = @import("Temporal.zig").Temporal;
 const Cli = @import("Cli.zig").Cli;
-const MemoryStoreSqlite = @import("MemoryStoreSqlite.zig").MemoryStoreSqlite;
 const JsonUtils = @import("JsonUtils.zig");
-const LlmParams = @import("config/ConfigIdentity.zig").LlmParams;
+const LlmParams = @import("ConfigIdentity.zig").LlmParams;
 
 pub const IdleThinker = struct {
     pub const Params = struct {
@@ -67,10 +66,7 @@ pub const IdleThinker = struct {
 
             const ep_msgs = try store.loadMessagesSinceCutoff(allocator, 400);
             defer {
-                const StoreType = @TypeOf(store.*);
-                if (StoreType == MemoryStoreSqlite) {
-                    for (ep_msgs) |m| allocator.free(@constCast(m.content));
-                }
+                for (ep_msgs) |m| allocator.free(@constCast(m.content));
                 allocator.free(ep_msgs);
             }
 
@@ -175,10 +171,7 @@ pub const IdleThinker = struct {
 
         const recent = try store.loadRecentMessages(allocator, 6);
         defer {
-            const StoreType = @TypeOf(store.*);
-            if (StoreType == MemoryStoreSqlite) {
-                for (recent) |m| allocator.free(@constCast(m.content));
-            }
+            for (recent) |m| allocator.free(@constCast(m.content));
             allocator.free(recent);
         }
 

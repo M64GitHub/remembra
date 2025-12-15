@@ -2,7 +2,7 @@ const std = @import("std");
 const Types = @import("Types.zig");
 const Cli = @import("Cli.zig").Cli;
 const JsonUtils = @import("JsonUtils.zig");
-const LlmParams = @import("config/ConfigIdentity.zig").LlmParams;
+const LlmParams = @import("ConfigIdentity.zig").LlmParams;
 
 pub const ReflectionProposal = struct {
     action: Action,
