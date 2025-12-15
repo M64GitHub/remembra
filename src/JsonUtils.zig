@@ -22,16 +22,29 @@ pub fn extractJsonObject(response: []const u8) []const u8 {
             return std.mem.trimRight(u8, response[content_start..end], " \n\r\t");
         }
     }
-    // Find JSON object by matching braces
+    // Look for { "proposals" first (expected Reflector format)
+    if (std.mem.indexOf(u8, response, "{ \"proposals\"")) |start| {
+        return extractObjectFromPos(response, start);
+    }
+    if (std.mem.indexOf(u8, response, "{\"proposals\"")) |start| {
+        return extractObjectFromPos(response, start);
+    }
+
+    // Fallback: find first JSON object by matching braces
     if (std.mem.indexOf(u8, response, "{")) |start| {
-        var depth: i32 = 0;
-        for (response[start..], 0..) |c, i| {
-            if (c == '{') depth += 1;
-            if (c == '}') depth -= 1;
-            if (depth == 0) return response[start .. start + i + 1];
-        }
+        return extractObjectFromPos(response, start);
     }
     return response;
+}
+
+fn extractObjectFromPos(response: []const u8, start: usize) []const u8 {
+    var depth: i32 = 0;
+    for (response[start..], 0..) |c, i| {
+        if (c == '{') depth += 1;
+        if (c == '}') depth -= 1;
+        if (depth == 0) return response[start .. start + i + 1];
+    }
+    return response[start..];
 }
 
 fn skipWhitespace(s: []const u8, start: usize) usize {
@@ -66,4 +79,14 @@ test "extractJsonObject with surrounding text" {
     const input = "Sure! Here is the result: {\"x\": 1} Hope that helps!";
     const result = extractJsonObject(input);
     try std.testing.expectEqualStrings("{\"x\": 1}", result);
+}
+
+test "extractJsonObject skips inline examples to find proposals" {
+    const input =
+        \\Example: { "action": "add", "x": 1 }
+        \\Another: { "action": "update" }
+        \\{ "proposals": [{"a": 1}] }
+    ;
+    const result = extractJsonObject(input);
+    try std.testing.expectEqualStrings("{\"proposals\": [{\"a\": 1}]}", result);
 }
