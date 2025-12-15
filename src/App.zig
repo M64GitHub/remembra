@@ -62,6 +62,66 @@ pub const App = struct {
         self.provider.deinit(allocator);
     }
 
+    pub fn reloadActiveProvider(
+        self: *App,
+        allocator: std.mem.Allocator,
+    ) !void {
+        const MemStore = @import("MemoryStoreSqlite.zig");
+        const id = self.store.getActiveProviderId() orelse return;
+
+        const profile = try self.store.getProviderProfile(allocator, id) orelse
+            return;
+        defer MemStore.freeProviderProfile(allocator, profile);
+
+        self.provider.deinit(allocator);
+        self.provider = try ProviderOllama.init(
+            allocator,
+            profile.ollama_url,
+            profile.model,
+        );
+
+        self.cli.msg(
+            .inf,
+            "Provider reloaded: {s} ({s})",
+            .{ profile.name, profile.model },
+        );
+    }
+
+    pub fn reloadActivePersona(
+        self: *App,
+        allocator: std.mem.Allocator,
+    ) !void {
+        const MemStore = @import("MemoryStoreSqlite.zig");
+        const id = self.store.getActivePersonaId() orelse return;
+
+        const profile = try self.store.getPersonaProfile(allocator, id) orelse
+            return;
+        defer MemStore.freePersonaStrings(allocator, profile);
+
+        self.ident.llm_chat = .{
+            .temperature = profile.llm_chat.temperature,
+            .max_tokens = profile.llm_chat.max_tokens,
+        };
+        self.ident.llm_reflection = .{
+            .temperature = profile.llm_reflection.temperature,
+            .max_tokens = profile.llm_reflection.max_tokens,
+        };
+        self.ident.llm_idle = .{
+            .temperature = profile.llm_idle.temperature,
+            .max_tokens = profile.llm_idle.max_tokens,
+        };
+        self.ident.llm_episode = .{
+            .temperature = profile.llm_episode.temperature,
+            .max_tokens = profile.llm_episode.max_tokens,
+        };
+        self.ident.confidence_user_notes = profile.conf_user_notes;
+        self.ident.confidence_episodes = profile.conf_episodes;
+        self.ident.confidence_idle_thoughts = profile.conf_idle;
+        self.ident.confidence_min_governor = profile.conf_governor;
+
+        self.cli.msg(.inf, "Persona reloaded: {s}", .{profile.name});
+    }
+
     pub fn run(self: *App, allocator: std.mem.Allocator) !void {
         self.printBanner();
 

@@ -92,6 +92,35 @@ pub const ChatParams = struct {
     stream: bool = false,
 };
 
+pub const LlmParams = struct {
+    temperature: f32,
+    max_tokens: u32,
+};
+
+pub const ProviderProfile = struct {
+    id: i64 = 0,
+    name: []const u8,
+    ollama_url: []const u8,
+    model: []const u8,
+    created_at_ms: i64 = 0,
+};
+
+pub const PersonaProfile = struct {
+    id: i64 = 0,
+    name: []const u8,
+    ai_name: []const u8,
+    tone: []const u8,
+    llm_chat: LlmParams,
+    llm_reflection: LlmParams,
+    llm_idle: LlmParams,
+    llm_episode: LlmParams,
+    conf_user_notes: f32,
+    conf_episodes: f32,
+    conf_idle: f32,
+    conf_governor: f32,
+    created_at_ms: i64 = 0,
+};
+
 test "Types basic sanity" {
     try std.testing.expectEqualStrings("user", roleToStr(.user));
     try std.testing.expectEqualStrings("note", kindToStr(.note));

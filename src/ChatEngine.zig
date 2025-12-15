@@ -108,6 +108,7 @@ fn runIdleThinker(allocator: std.mem.Allocator, app: *App) !void {
         app.ident.confidence_idle_thoughts,
         app.ident.confidence_episodes,
         app.ident.prompts,
+        app.ident.name,
     );
 }
 
@@ -279,6 +280,7 @@ fn runReflection(
         &app.events,
         app.ident.llm_reflection,
         app.ident.prompts,
+        app.ident.name,
     );
     defer {
         for (proposals) |p| {

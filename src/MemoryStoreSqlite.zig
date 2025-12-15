@@ -60,6 +60,34 @@ pub const SCHEMA =
     \\    ON events(timestamp_ms);
     \\CREATE INDEX IF NOT EXISTS idx_events_kind
     \\    ON events(kind);
+    \\
+    \\CREATE TABLE IF NOT EXISTS provider_profiles (
+    \\    id            INTEGER PRIMARY KEY AUTOINCREMENT,
+    \\    name          TEXT NOT NULL UNIQUE,
+    \\    ollama_url    TEXT NOT NULL,
+    \\    model         TEXT NOT NULL,
+    \\    created_at_ms INTEGER NOT NULL
+    \\);
+    \\
+    \\CREATE TABLE IF NOT EXISTS persona_profiles (
+    \\    id            INTEGER PRIMARY KEY AUTOINCREMENT,
+    \\    name          TEXT NOT NULL UNIQUE,
+    \\    ai_name       TEXT NOT NULL,
+    \\    tone          TEXT NOT NULL,
+    \\    llm_chat_temp      REAL NOT NULL,
+    \\    llm_chat_tokens    INTEGER NOT NULL,
+    \\    llm_reflect_temp   REAL NOT NULL,
+    \\    llm_reflect_tokens INTEGER NOT NULL,
+    \\    llm_idle_temp      REAL NOT NULL,
+    \\    llm_idle_tokens    INTEGER NOT NULL,
+    \\    llm_episode_temp   REAL NOT NULL,
+    \\    llm_episode_tokens INTEGER NOT NULL,
+    \\    conf_user_notes    REAL NOT NULL,
+    \\    conf_episodes      REAL NOT NULL,
+    \\    conf_idle          REAL NOT NULL,
+    \\    conf_governor      REAL NOT NULL,
+    \\    created_at_ms      INTEGER NOT NULL
+    \\);
 ;
 
 pub const MemoryStoreSqlite = struct {
@@ -82,6 +110,41 @@ pub const MemoryStoreSqlite = struct {
         try self.setMetaDefault("time_offset_ms", "0");
         try self.setMetaDefault("last_user_msg_ms", "0");
         try self.setMetaDefault("last_idle_think_ms", "0");
+        try self.setMetaDefault("active_provider_id", "0");
+        try self.setMetaDefault("active_persona_id", "0");
+        try self.seedDefaultProfiles();
+    }
+
+    fn seedDefaultProfiles(self: *MemoryStoreSqlite) !void {
+        const count = try self.scalarI64(
+            "SELECT COUNT(*) FROM provider_profiles;",
+        );
+        if (count == 0) {
+            _ = try self.createProviderProfile(
+                "local-ollama",
+                "http://127.0.0.1:11434",
+                "llama3.2",
+            );
+        }
+
+        const pcount = try self.scalarI64(
+            "SELECT COUNT(*) FROM persona_profiles;",
+        );
+        if (pcount == 0) {
+            _ = try self.createPersonaProfile(.{
+                .name = "remembra-default",
+                .ai_name = "REMEMBRA",
+                .tone = "helpful, concise, grounded, engaging",
+                .llm_chat = .{ .temperature = 0.7, .max_tokens = 256 },
+                .llm_reflection = .{ .temperature = 0.2, .max_tokens = 512 },
+                .llm_idle = .{ .temperature = 0.4, .max_tokens = 160 },
+                .llm_episode = .{ .temperature = 0.2, .max_tokens = 512 },
+                .conf_user_notes = 0.7,
+                .conf_episodes = 0.85,
+                .conf_idle = 0.55,
+                .conf_governor = 0.6,
+            });
+        }
     }
 
     pub fn clearDb(self: *MemoryStoreSqlite) !void {
@@ -90,6 +153,8 @@ pub const MemoryStoreSqlite = struct {
             \\DELETE FROM memory_items;
             \\DELETE FROM identity_entries;
             \\DELETE FROM events;
+            \\DELETE FROM provider_profiles;
+            \\DELETE FROM persona_profiles;
             \\DELETE FROM meta;
         );
         try self.ensureSchema();
@@ -644,6 +709,22 @@ pub const MemoryStoreSqlite = struct {
         ));
     }
 
+    pub fn deactivateMemory(self: *MemoryStoreSqlite, id: i64) !void {
+        const now = self.nowMs();
+
+        const stmt = try self.db.prepare(
+            "UPDATE memory_items SET is_active=0, updated_at_ms=? WHERE id=?;",
+        );
+        defer sqlite.finalize(stmt);
+
+        sqlite.bindInt64(stmt, 1, now);
+        sqlite.bindInt64(stmt, 2, id);
+
+        if (sqlite.step(stmt) != c.SQLITE_DONE) {
+            return error.SqliteStepFailed;
+        }
+    }
+
     fn setMetaDefault(
         self: *MemoryStoreSqlite,
         key: []const u8,
@@ -852,7 +933,307 @@ pub const MemoryStoreSqlite = struct {
     pub fn countEvents(self: *MemoryStoreSqlite) !usize {
         return @intCast(try self.scalarI64("SELECT COUNT(*) FROM events;"));
     }
+
+    pub fn createProviderProfile(
+        self: *MemoryStoreSqlite,
+        name: []const u8,
+        ollama_url: []const u8,
+        model: []const u8,
+    ) !i64 {
+        const now = self.nowMs();
+
+        const stmt = try self.db.prepare(
+            "INSERT INTO provider_profiles(name, ollama_url, model, " ++
+                "created_at_ms) VALUES(?, ?, ?, ?);",
+        );
+        defer sqlite.finalize(stmt);
+
+        sqlite.bindText(stmt, 1, name);
+        sqlite.bindText(stmt, 2, ollama_url);
+        sqlite.bindText(stmt, 3, model);
+        sqlite.bindInt64(stmt, 4, now);
+
+        if (sqlite.step(stmt) != c.SQLITE_DONE) {
+            return error.SqliteStepFailed;
+        }
+
+        return self.db.lastInsertRowId();
+    }
+
+    pub fn getProviderProfile(
+        self: *MemoryStoreSqlite,
+        allocator: std.mem.Allocator,
+        id: i64,
+    ) !?Types.ProviderProfile {
+        const stmt = try self.db.prepare(
+            "SELECT id, name, ollama_url, model, created_at_ms " ++
+                "FROM provider_profiles WHERE id=?;",
+        );
+        defer sqlite.finalize(stmt);
+
+        sqlite.bindInt64(stmt, 1, id);
+
+        if (sqlite.step(stmt) != c.SQLITE_ROW) return null;
+
+        return .{
+            .id = sqlite.columnInt64(stmt, 0),
+            .name = try allocator.dupe(u8, sqlite.columnText(stmt, 1)),
+            .ollama_url = try allocator.dupe(u8, sqlite.columnText(stmt, 2)),
+            .model = try allocator.dupe(u8, sqlite.columnText(stmt, 3)),
+            .created_at_ms = sqlite.columnInt64(stmt, 4),
+        };
+    }
+
+    pub fn listProviderProfiles(
+        self: *MemoryStoreSqlite,
+        allocator: std.mem.Allocator,
+    ) ![]Types.ProviderProfile {
+        const stmt = try self.db.prepare(
+            "SELECT id, name, ollama_url, model, created_at_ms " ++
+                "FROM provider_profiles ORDER BY id ASC;",
+        );
+        defer sqlite.finalize(stmt);
+
+        var out: std.ArrayList(Types.ProviderProfile) = .empty;
+        errdefer {
+            for (out.items) |p| {
+                allocator.free(@constCast(p.name));
+                allocator.free(@constCast(p.ollama_url));
+                allocator.free(@constCast(p.model));
+            }
+            out.deinit(allocator);
+        }
+
+        while (sqlite.step(stmt) == c.SQLITE_ROW) {
+            try out.append(allocator, .{
+                .id = sqlite.columnInt64(stmt, 0),
+                .name = try allocator.dupe(u8, sqlite.columnText(stmt, 1)),
+                .ollama_url = try allocator.dupe(u8, sqlite.columnText(stmt, 2)),
+                .model = try allocator.dupe(u8, sqlite.columnText(stmt, 3)),
+                .created_at_ms = sqlite.columnInt64(stmt, 4),
+            });
+        }
+
+        return out.toOwnedSlice(allocator);
+    }
+
+    pub fn deleteProviderProfile(self: *MemoryStoreSqlite, id: i64) !void {
+        const stmt = try self.db.prepare(
+            "DELETE FROM provider_profiles WHERE id=?;",
+        );
+        defer sqlite.finalize(stmt);
+
+        sqlite.bindInt64(stmt, 1, id);
+
+        if (sqlite.step(stmt) != c.SQLITE_DONE) {
+            return error.SqliteStepFailed;
+        }
+    }
+
+    pub fn createPersonaProfile(
+        self: *MemoryStoreSqlite,
+        profile: Types.PersonaProfile,
+    ) !i64 {
+        const now = self.nowMs();
+
+        const stmt = try self.db.prepare(
+            "INSERT INTO persona_profiles(name, ai_name, tone, " ++
+                "llm_chat_temp, llm_chat_tokens, " ++
+                "llm_reflect_temp, llm_reflect_tokens, " ++
+                "llm_idle_temp, llm_idle_tokens, " ++
+                "llm_episode_temp, llm_episode_tokens, " ++
+                "conf_user_notes, conf_episodes, conf_idle, conf_governor, " ++
+                "created_at_ms) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, " ++
+                "?, ?, ?, ?, ?);",
+        );
+        defer sqlite.finalize(stmt);
+
+        sqlite.bindText(stmt, 1, profile.name);
+        sqlite.bindText(stmt, 2, profile.ai_name);
+        sqlite.bindText(stmt, 3, profile.tone);
+        sqlite.bindDouble(stmt, 4, profile.llm_chat.temperature);
+        sqlite.bindInt(stmt, 5, @intCast(profile.llm_chat.max_tokens));
+        sqlite.bindDouble(stmt, 6, profile.llm_reflection.temperature);
+        sqlite.bindInt(stmt, 7, @intCast(profile.llm_reflection.max_tokens));
+        sqlite.bindDouble(stmt, 8, profile.llm_idle.temperature);
+        sqlite.bindInt(stmt, 9, @intCast(profile.llm_idle.max_tokens));
+        sqlite.bindDouble(stmt, 10, profile.llm_episode.temperature);
+        sqlite.bindInt(stmt, 11, @intCast(profile.llm_episode.max_tokens));
+        sqlite.bindDouble(stmt, 12, profile.conf_user_notes);
+        sqlite.bindDouble(stmt, 13, profile.conf_episodes);
+        sqlite.bindDouble(stmt, 14, profile.conf_idle);
+        sqlite.bindDouble(stmt, 15, profile.conf_governor);
+        sqlite.bindInt64(stmt, 16, now);
+
+        if (sqlite.step(stmt) != c.SQLITE_DONE) {
+            return error.SqliteStepFailed;
+        }
+
+        return self.db.lastInsertRowId();
+    }
+
+    pub fn getPersonaProfile(
+        self: *MemoryStoreSqlite,
+        allocator: std.mem.Allocator,
+        id: i64,
+    ) !?Types.PersonaProfile {
+        const stmt = try self.db.prepare(
+            "SELECT id, name, ai_name, tone, " ++
+                "llm_chat_temp, llm_chat_tokens, " ++
+                "llm_reflect_temp, llm_reflect_tokens, " ++
+                "llm_idle_temp, llm_idle_tokens, " ++
+                "llm_episode_temp, llm_episode_tokens, " ++
+                "conf_user_notes, conf_episodes, conf_idle, conf_governor, " ++
+                "created_at_ms FROM persona_profiles WHERE id=?;",
+        );
+        defer sqlite.finalize(stmt);
+
+        sqlite.bindInt64(stmt, 1, id);
+
+        if (sqlite.step(stmt) != c.SQLITE_ROW) return null;
+
+        return .{
+            .id = sqlite.columnInt64(stmt, 0),
+            .name = try allocator.dupe(u8, sqlite.columnText(stmt, 1)),
+            .ai_name = try allocator.dupe(u8, sqlite.columnText(stmt, 2)),
+            .tone = try allocator.dupe(u8, sqlite.columnText(stmt, 3)),
+            .llm_chat = .{
+                .temperature = @floatCast(sqlite.columnDouble(stmt, 4)),
+                .max_tokens = @intCast(sqlite.columnInt(stmt, 5)),
+            },
+            .llm_reflection = .{
+                .temperature = @floatCast(sqlite.columnDouble(stmt, 6)),
+                .max_tokens = @intCast(sqlite.columnInt(stmt, 7)),
+            },
+            .llm_idle = .{
+                .temperature = @floatCast(sqlite.columnDouble(stmt, 8)),
+                .max_tokens = @intCast(sqlite.columnInt(stmt, 9)),
+            },
+            .llm_episode = .{
+                .temperature = @floatCast(sqlite.columnDouble(stmt, 10)),
+                .max_tokens = @intCast(sqlite.columnInt(stmt, 11)),
+            },
+            .conf_user_notes = @floatCast(sqlite.columnDouble(stmt, 12)),
+            .conf_episodes = @floatCast(sqlite.columnDouble(stmt, 13)),
+            .conf_idle = @floatCast(sqlite.columnDouble(stmt, 14)),
+            .conf_governor = @floatCast(sqlite.columnDouble(stmt, 15)),
+            .created_at_ms = sqlite.columnInt64(stmt, 16),
+        };
+    }
+
+    pub fn listPersonaProfiles(
+        self: *MemoryStoreSqlite,
+        allocator: std.mem.Allocator,
+    ) ![]Types.PersonaProfile {
+        const stmt = try self.db.prepare(
+            "SELECT id, name, ai_name, tone, " ++
+                "llm_chat_temp, llm_chat_tokens, " ++
+                "llm_reflect_temp, llm_reflect_tokens, " ++
+                "llm_idle_temp, llm_idle_tokens, " ++
+                "llm_episode_temp, llm_episode_tokens, " ++
+                "conf_user_notes, conf_episodes, conf_idle, conf_governor, " ++
+                "created_at_ms FROM persona_profiles ORDER BY id ASC;",
+        );
+        defer sqlite.finalize(stmt);
+
+        var out: std.ArrayList(Types.PersonaProfile) = .empty;
+        errdefer {
+            for (out.items) |p| freePersonaStrings(allocator, p);
+            out.deinit(allocator);
+        }
+
+        while (sqlite.step(stmt) == c.SQLITE_ROW) {
+            try out.append(allocator, .{
+                .id = sqlite.columnInt64(stmt, 0),
+                .name = try allocator.dupe(u8, sqlite.columnText(stmt, 1)),
+                .ai_name = try allocator.dupe(u8, sqlite.columnText(stmt, 2)),
+                .tone = try allocator.dupe(u8, sqlite.columnText(stmt, 3)),
+                .llm_chat = .{
+                    .temperature = @floatCast(sqlite.columnDouble(stmt, 4)),
+                    .max_tokens = @intCast(sqlite.columnInt(stmt, 5)),
+                },
+                .llm_reflection = .{
+                    .temperature = @floatCast(sqlite.columnDouble(stmt, 6)),
+                    .max_tokens = @intCast(sqlite.columnInt(stmt, 7)),
+                },
+                .llm_idle = .{
+                    .temperature = @floatCast(sqlite.columnDouble(stmt, 8)),
+                    .max_tokens = @intCast(sqlite.columnInt(stmt, 9)),
+                },
+                .llm_episode = .{
+                    .temperature = @floatCast(sqlite.columnDouble(stmt, 10)),
+                    .max_tokens = @intCast(sqlite.columnInt(stmt, 11)),
+                },
+                .conf_user_notes = @floatCast(sqlite.columnDouble(stmt, 12)),
+                .conf_episodes = @floatCast(sqlite.columnDouble(stmt, 13)),
+                .conf_idle = @floatCast(sqlite.columnDouble(stmt, 14)),
+                .conf_governor = @floatCast(sqlite.columnDouble(stmt, 15)),
+                .created_at_ms = sqlite.columnInt64(stmt, 16),
+            });
+        }
+
+        return out.toOwnedSlice(allocator);
+    }
+
+    pub fn deletePersonaProfile(self: *MemoryStoreSqlite, id: i64) !void {
+        const stmt = try self.db.prepare(
+            "DELETE FROM persona_profiles WHERE id=?;",
+        );
+        defer sqlite.finalize(stmt);
+
+        sqlite.bindInt64(stmt, 1, id);
+
+        if (sqlite.step(stmt) != c.SQLITE_DONE) {
+            return error.SqliteStepFailed;
+        }
+    }
+
+    pub fn getActiveProviderId(self: *MemoryStoreSqlite) ?i64 {
+        const val = self.getMetaI64("active_provider_id") catch return null;
+        if (val <= 0) return null;
+        return val;
+    }
+
+    pub fn setActiveProviderId(self: *MemoryStoreSqlite, id: ?i64) !void {
+        if (id) |pid| {
+            try self.setMetaI64("active_provider_id", pid);
+        } else {
+            try self.setMetaI64("active_provider_id", 0);
+        }
+    }
+
+    pub fn getActivePersonaId(self: *MemoryStoreSqlite) ?i64 {
+        const val = self.getMetaI64("active_persona_id") catch return null;
+        if (val <= 0) return null;
+        return val;
+    }
+
+    pub fn setActivePersonaId(self: *MemoryStoreSqlite, id: ?i64) !void {
+        if (id) |pid| {
+            try self.setMetaI64("active_persona_id", pid);
+        } else {
+            try self.setMetaI64("active_persona_id", 0);
+        }
+    }
 };
+
+pub fn freeProviderProfile(
+    allocator: std.mem.Allocator,
+    p: Types.ProviderProfile,
+) void {
+    allocator.free(@constCast(p.name));
+    allocator.free(@constCast(p.ollama_url));
+    allocator.free(@constCast(p.model));
+}
+
+pub fn freePersonaStrings(
+    allocator: std.mem.Allocator,
+    p: Types.PersonaProfile,
+) void {
+    allocator.free(@constCast(p.name));
+    allocator.free(@constCast(p.ai_name));
+    allocator.free(@constCast(p.tone));
+}
 
 pub const EventKind = enum(u8) {
     memory_proposed = 0,

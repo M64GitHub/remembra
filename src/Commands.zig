@@ -273,6 +273,7 @@ fn cmdIdleRun(allocator: std.mem.Allocator, app: *App) !Result {
         app.ident.confidence_idle_thoughts,
         app.ident.confidence_episodes,
         app.ident.prompts,
+        app.ident.name,
     );
     return .handled;
 }
@@ -303,6 +304,7 @@ fn cmdIdleTick(
         app.ident.confidence_idle_thoughts,
         app.ident.confidence_episodes,
         app.ident.prompts,
+        app.ident.name,
     );
     app.cli.msg(.ok, "Idle ticked by {d} minutes.", .{minutes});
     return .handled;
@@ -336,6 +338,7 @@ fn cmdEpisodeCompact(allocator: std.mem.Allocator, app: *App) !Result {
         ep_msgs,
         app.ident.llm_episode,
         app.ident.prompts,
+        app.ident.name,
     );
     defer {
         allocator.free(ep.title);

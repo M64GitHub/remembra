@@ -35,6 +35,7 @@ pub const Reflector = struct {
         events: *EventSystem,
         llm_params: LlmParams,
         prompts: PromptTemplates,
+        ai_name: []const u8,
     ) ![]ReflectionProposal {
         const prompt = try buildReflectionPrompt(
             allocator,
@@ -44,6 +45,7 @@ pub const Reflector = struct {
             assistant_reply,
             allow_memory_ops,
             prompts,
+            ai_name,
         );
         defer allocator.free(prompt);
 
@@ -95,10 +97,15 @@ pub const Reflector = struct {
         assistant_reply: []const u8,
         allow_memory_ops: bool,
         prompts: PromptTemplates,
+        ai_name: []const u8,
     ) ![]u8 {
         var out: std.ArrayList(u8) = .empty;
         errdefer out.deinit(allocator);
 
+        try out.writer(allocator).print(
+            "You are the REFLECTION module of {s}.\n",
+            .{ai_name},
+        );
         try out.appendSlice(allocator, prompts.reflector_system);
         try out.appendSlice(allocator, "\n\n");
 

@@ -17,8 +17,14 @@ pub const EpisodeCompactor = struct {
         msgs: []const Types.Message,
         llm_params: LlmParams,
         prompts: PromptTemplates,
+        ai_name: []const u8,
     ) !EpisodeSummary {
-        const prompt = try buildPrompt(allocator, msgs, prompts.episode_compactor);
+        const prompt = try buildPrompt(
+            allocator,
+            msgs,
+            prompts.episode_compactor,
+            ai_name,
+        );
         defer allocator.free(prompt);
 
         const call_msgs = &[_]Types.Message{
@@ -50,10 +56,15 @@ pub const EpisodeCompactor = struct {
         allocator: std.mem.Allocator,
         msgs: []const Types.Message,
         episode_template: []const u8,
+        ai_name: []const u8,
     ) ![]u8 {
         var out: std.ArrayList(u8) = .empty;
         errdefer out.deinit(allocator);
 
+        try out.writer(allocator).print(
+            "You are the EPISODE COMPACTOR of {s}.\n",
+            .{ai_name},
+        );
         try out.appendSlice(allocator, episode_template);
         try out.appendSlice(allocator, "\n");
 

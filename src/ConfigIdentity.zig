@@ -22,7 +22,6 @@ pub const PromptTemplates = struct {
     ,
 
     reflector_system: []const u8 =
-        \\You are the REFLECTION module of REMEMBRA.
         \\You may PROPOSE memory changes, but you do NOT apply them.
         \\
         \\SUBJECT RULES (IMPORTANT):
@@ -52,9 +51,9 @@ pub const PromptTemplates = struct {
         \\subject: "user" or "self" ONLY
         \\
         \\EXAMPLES:
-        \\- "remember Lala is my friend" -> user.friend=Lala
+        \\- "Remember Lala is my friend" -> user.friend=Lala
         \\- "I like coffee" -> user.likes=coffee
-        \\- "my name is Mario" -> user.name=Mario
+        \\- "My name is Mario" -> user.name=Mario
         \\
         \\Empty if nothing to store: { "proposals": [] }
     ,
@@ -70,7 +69,6 @@ pub const PromptTemplates = struct {
 
     idle_thinker: []const u8 =
         \\IDLE_MONOLOGUE
-        \\You are the IDLE THINKER of REMEMBRA.
         \\Generate ONE short inner thought about this conversation,
         \\yourself, an interaction, or anything you find appropriate or
         \\interesting.
@@ -82,7 +80,6 @@ pub const PromptTemplates = struct {
 
     episode_compactor: []const u8 =
         \\EPISODE_COMPACTION
-        \\You are the EPISODE COMPACTOR of REMEMBRA.
         \\Summarize the conversation into a compact episode.
         \\Output JSON ONLY.
         \\

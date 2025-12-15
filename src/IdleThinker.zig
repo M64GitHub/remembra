@@ -31,6 +31,7 @@ pub const IdleThinker = struct {
         conf_idle: f32,
         conf_episode: f32,
         prompts: PromptTemplates,
+        ai_name: []const u8,
     ) !void {
         const last_user = store.getLastUserMsgMs();
         const gap = Temporal.gapMs(now_ms, last_user);
@@ -46,6 +47,7 @@ pub const IdleThinker = struct {
                 now_ms,
                 llm_idle,
                 prompts,
+                ai_name,
             );
             defer allocator.free(thought);
 
@@ -84,6 +86,7 @@ pub const IdleThinker = struct {
                     ep_msgs,
                     llm_episode,
                     prompts,
+                    ai_name,
                 );
                 defer {
                     allocator.free(ep.title);
@@ -134,12 +137,14 @@ pub const IdleThinker = struct {
         now_ms: i64,
         llm_params: LlmParams,
         prompts: PromptTemplates,
+        ai_name: []const u8,
     ) ![]u8 {
         const prompt = try buildThoughtPrompt(
             allocator,
             store,
             now_ms,
             prompts.idle_thinker,
+            ai_name,
         );
         defer allocator.free(prompt);
 
@@ -170,10 +175,15 @@ pub const IdleThinker = struct {
         store: anytype,
         now_ms: i64,
         idle_template: []const u8,
+        ai_name: []const u8,
     ) ![]u8 {
         var out: std.ArrayList(u8) = .empty;
         errdefer out.deinit(allocator);
 
+        try out.writer(allocator).print(
+            "You are the IDLE THINKER of {s}.\n",
+            .{ai_name},
+        );
         try out.appendSlice(allocator, idle_template);
         try out.appendSlice(allocator, "\n\n");
 
