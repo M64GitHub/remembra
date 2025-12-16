@@ -82,6 +82,13 @@ pub const MemoryItem = struct {
     updated_at_ms: i64 = 0,
 };
 
+pub const IdentityPreset = struct {
+    id: i64 = 0,
+    name: []const u8,
+    text: []const u8,
+    created_at_ms: i64 = 0,
+};
+
 /// Provider-independent chat parameters.
 /// Keep small for Phase 1; expand later.
 pub const ChatParams = struct {
@@ -110,6 +117,7 @@ pub const PersonaProfile = struct {
     name: []const u8,
     ai_name: []const u8,
     tone: []const u8,
+    persona_kernel: []const u8,
     llm_chat: LlmParams,
     llm_reflection: LlmParams,
     llm_idle: LlmParams,

@@ -1,6 +1,7 @@
 //! HTTP server for REMEMBRA - Ollama-compatible API layer.
 
 const std = @import("std");
+const posix = std.posix;
 const App = @import("App.zig").App;
 const ChatEngine = @import("ChatEngine.zig");
 const Commands = @import("Commands.zig");
@@ -9,10 +10,12 @@ const Types = @import("Types.zig");
 const MemoryStore = @import("MemoryStoreSqlite.zig");
 const EventKind = MemoryStore.EventKind;
 const ConfigIdentity = @import("ConfigIdentity.zig");
+const IdleThinker = @import("IdleThinker.zig").IdleThinker;
 
 const PORT: u16 = 8080;
 const READ_BUFFER_SIZE: usize = 16384;
 const WRITE_BUFFER_SIZE: usize = 16384;
+const POLL_TIMEOUT_MS: i32 = 1000;
 
 pub const HttpServer = struct {
     listener: std.net.Server,
@@ -34,20 +37,73 @@ pub const HttpServer = struct {
     ) !void {
         app.cli.msg(.ok, "Listening on http://127.0.0.1:{d}", .{PORT});
 
+        var poll_fds = [_]posix.pollfd{
+            .{
+                .fd = self.listener.stream.handle,
+                .events = posix.POLL.IN,
+                .revents = 0,
+            },
+        };
+
         while (true) {
-            const conn = self.listener.accept() catch |err| {
-                app.cli.msg(.err, "Accept error: {}", .{err});
+            const ready_count = posix.poll(
+                &poll_fds,
+                POLL_TIMEOUT_MS,
+            ) catch |err| {
+                app.cli.msg(.err, "Poll error: {}", .{err});
                 continue;
             };
 
-            handleConnection(allocator, app, conn) catch |err| {
-                app.cli.msg(.err, "Connection error: {}", .{err});
-            };
+            if (ready_count == 0) {
+                runIdleThinkerCheck(allocator, app);
+                continue;
+            }
 
-            conn.stream.close();
+            if (poll_fds[0].revents & posix.POLL.IN != 0) {
+                const conn = self.listener.accept() catch |err| {
+                    app.cli.msg(.err, "Accept error: {}", .{err});
+                    continue;
+                };
+
+                handleConnection(allocator, app, conn) catch |err| {
+                    app.cli.msg(.err, "Connection error: {}", .{err});
+                };
+
+                conn.stream.close();
+            }
+
+            poll_fds[0].revents = 0;
         }
     }
 };
+
+fn runIdleThinkerCheck(allocator: std.mem.Allocator, app: *App) void {
+    const pid = app.store.getActivePersonaId() orelse 1;
+    const now_ms = app.store.nowMs();
+    const policy = app.ident.memory_policy;
+
+    app.store.decayMemory(pid, policy, now_ms);
+
+    IdleThinker.maybeRun(
+        allocator,
+        &app.provider,
+        &app.store,
+        pid,
+        policy,
+        app.cli,
+        &app.events,
+        app.sys.idle_params,
+        now_ms,
+        app.ident.llm_idle,
+        app.ident.llm_episode,
+        app.ident.confidence_idle_thoughts,
+        app.ident.confidence_episodes,
+        app.ident.prompts,
+        app.ident.name,
+    ) catch |err| {
+        app.cli.msg(.wrn, "Idle thinker error: {}", .{err});
+    };
+}
 
 fn handleConnection(
     allocator: std.mem.Allocator,
@@ -153,6 +209,10 @@ fn handleRequest(
         try handleGetPrompts(allocator, app, request);
     } else if (method == .POST and std.mem.eql(u8, target, "/api/prompts")) {
         try handlePostPrompt(allocator, app, request);
+    } else if (method == .GET and
+        std.mem.eql(u8, target, "/api/identity-presets"))
+    {
+        try handleGetIdentityPresets(allocator, app, request);
     } else if (method == .GET and
         std.mem.eql(u8, target, "/api/system/context-window"))
     {
@@ -289,8 +349,7 @@ fn handleCommand(
     // Handle /help specially - return custom help text
     if (std.mem.eql(u8, cmd, "/help")) {
         _ = app.store.insertEvent(pid, .command_executed, "user", cmd, null) catch {};
-        try respondJson(request,
-            "{\"status\":\"ok\",\"output\":" ++
+        try respondJson(request, "{\"status\":\"ok\",\"output\":" ++
             "\"Commands:\\n" ++
             "  /help              - Show this help\\n" ++
             "  /mem add <text>    - Store a memory note\\n" ++
@@ -298,8 +357,7 @@ fn handleCommand(
             "  /time advance <h>  - Advance simulated time\\n" ++
             "  /db stats          - Show database statistics\\n" ++
             "  /db init           - Initialize database schema\\n" ++
-            "  /db clear          - Clear all database data\"}"
-        );
+            "  /db clear          - Clear all database data\"}");
         return;
     }
 
@@ -311,10 +369,11 @@ fn handleCommand(
         const active_count = app.store.countActiveMemories(pid) catch 0;
 
         var out_buf: [512]u8 = undefined;
-        const output = std.fmt.bufPrint(&out_buf,
+        const output = std.fmt.bufPrint(
+            &out_buf,
             "{{\"status\":\"ok\",\"output\":\"Database Stats:\\n" ++
-            "  Messages: {d}\\n" ++
-            "  Memories: {d} ({d} active)\"}}",
+                "  Messages: {d}\\n" ++
+                "  Memories: {d} ({d} active)\"}}",
             .{ msg_count, mem_count, active_count },
         ) catch "{\"status\":\"ok\",\"output\":\"Stats unavailable\"}";
 
@@ -326,8 +385,7 @@ fn handleCommand(
     if (std.mem.startsWith(u8, cmd, "/time advance ")) {
         const arg = cmd["/time advance ".len..];
         const hours = std.fmt.parseInt(i64, arg, 10) catch {
-            try respondJson(request,
-                "{\"status\":\"error\",\"output\":" ++
+            try respondJson(request, "{\"status\":\"error\",\"output\":" ++
                 "\"Invalid argument. Usage: /time advance <hours>\"}");
             return;
         };
@@ -335,7 +393,8 @@ fn handleCommand(
         _ = app.store.insertEvent(pid, .command_executed, "user", cmd, null) catch {};
 
         var out_buf: [256]u8 = undefined;
-        const output = std.fmt.bufPrint(&out_buf,
+        const output = std.fmt.bufPrint(
+            &out_buf,
             "{{\"status\":\"ok\",\"output\":\"Time advanced by {d} hours.\"}}",
             .{hours},
         ) catch "{\"status\":\"ok\",\"output\":\"Time advanced.\"}";
@@ -347,20 +406,17 @@ fn handleCommand(
     if (std.mem.startsWith(u8, cmd, "/mem add ")) {
         const text = cmd["/mem add ".len..];
         if (text.len == 0) {
-            try respondJson(request,
-                "{\"status\":\"error\",\"output\":" ++
+            try respondJson(request, "{\"status\":\"error\",\"output\":" ++
                 "\"No text provided. Usage: /mem add <text>\"}");
             return;
         }
         // Execute the actual command
         _ = Commands.execute(allocator, app, cmd) catch {
-            try respondJson(request,
-                "{\"status\":\"error\",\"output\":\"Failed to store memory.\"}");
+            try respondJson(request, "{\"status\":\"error\",\"output\":\"Failed to store memory.\"}");
             return;
         };
         _ = app.store.insertEvent(pid, .command_executed, "user", cmd, null) catch {};
-        try respondJson(request,
-            "{\"status\":\"ok\",\"output\":\"Memory stored.\"}");
+        try respondJson(request, "{\"status\":\"ok\",\"output\":\"Memory stored.\"}");
         return;
     }
 
@@ -368,21 +424,20 @@ fn handleCommand(
     if (std.mem.startsWith(u8, cmd, "/mem decay ")) {
         const arg = cmd["/mem decay ".len..];
         const hours = std.fmt.parseInt(i64, arg, 10) catch {
-            try respondJson(request,
-                "{\"status\":\"error\",\"output\":" ++
+            try respondJson(request, "{\"status\":\"error\",\"output\":" ++
                 "\"Invalid argument. Usage: /mem decay <hours>\"}");
             return;
         };
         // Execute the actual command
         _ = Commands.execute(allocator, app, cmd) catch {
-            try respondJson(request,
-                "{\"status\":\"error\",\"output\":\"Failed to decay memory.\"}");
+            try respondJson(request, "{\"status\":\"error\",\"output\":\"Failed to decay memory.\"}");
             return;
         };
         _ = app.store.insertEvent(pid, .command_executed, "user", cmd, null) catch {};
 
         var out_buf: [256]u8 = undefined;
-        const output = std.fmt.bufPrint(&out_buf,
+        const output = std.fmt.bufPrint(
+            &out_buf,
             "{{\"status\":\"ok\",\"output\":\"Memory decayed by {d} hours.\"}}",
             .{hours},
         ) catch "{\"status\":\"ok\",\"output\":\"Memory decayed.\"}";
@@ -442,8 +497,7 @@ fn handleCommand(
     }
 
     // Unknown command
-    try respondJson(request,
-        "{\"status\":\"error\",\"output\":\"Unknown command. Type /help\"}");
+    try respondJson(request, "{\"status\":\"error\",\"output\":\"Unknown command. Type /help\"}");
 }
 
 fn extractUserMessage(
@@ -1237,6 +1291,23 @@ fn handleGetPersonas(
     try respondJson(request, json);
 }
 
+fn handleGetIdentityPresets(
+    allocator: std.mem.Allocator,
+    app: *App,
+    request: *std.http.Server.Request,
+) !void {
+    const presets = try app.store.listIdentityPresets(allocator);
+    defer {
+        for (presets) |p| MemoryStore.freeIdentityPreset(allocator, p);
+        allocator.free(presets);
+    }
+
+    const json = try buildIdentityPresetsJson(allocator, presets);
+    defer allocator.free(json);
+
+    try respondJson(request, json);
+}
+
 fn handlePostPersona(
     allocator: std.mem.Allocator,
     app: *App,
@@ -1274,16 +1345,11 @@ fn handlePostPersona(
 
     // Store default prompts for new persona
     const defaults = ConfigIdentity.PromptTemplates{};
-    app.store.setPersonaPrompt(id, "system_spine", defaults.system_spine)
-        catch {};
-    app.store.setPersonaPrompt(id, "reflector_system", defaults.reflector_system)
-        catch {};
-    app.store.setPersonaPrompt(id, "reflector_no_ops", defaults.reflector_no_ops)
-        catch {};
-    app.store.setPersonaPrompt(id, "idle_thinker", defaults.idle_thinker)
-        catch {};
-    app.store.setPersonaPrompt(id, "episode_compactor", defaults.episode_compactor)
-        catch {};
+    app.store.setPersonaPrompt(id, "system_spine", defaults.system_spine) catch {};
+    app.store.setPersonaPrompt(id, "reflector_system", defaults.reflector_system) catch {};
+    app.store.setPersonaPrompt(id, "reflector_no_ops", defaults.reflector_no_ops) catch {};
+    app.store.setPersonaPrompt(id, "idle_thinker", defaults.idle_thinker) catch {};
+    app.store.setPersonaPrompt(id, "episode_compactor", defaults.episode_compactor) catch {};
 
     var buf: [64]u8 = undefined;
     const resp = std.fmt.bufPrint(&buf, "{{\"id\":{d}}}", .{id}) catch
@@ -1771,10 +1837,16 @@ fn parsePersonaInput(
     if (ai_name_v != .string) return error.InvalidAiName;
     if (tone_v != .string) return error.InvalidTone;
 
+    const kernel = if (root.get("persona_kernel")) |v|
+        (if (v == .string) v.string else "")
+    else
+        "";
+
     return .{
         .name = try allocator.dupe(u8, name_v.string),
         .ai_name = try allocator.dupe(u8, ai_name_v.string),
         .tone = try allocator.dupe(u8, tone_v.string),
+        .persona_kernel = try allocator.dupe(u8, kernel),
         .llm_chat = .{
             .temperature = getJsonFloat(root, "llm_chat_temp") orelse 0.7,
             .max_tokens = getJsonU32(root, "llm_chat_tokens") orelse 256,
@@ -1824,11 +1896,17 @@ fn parsePersonaUpdateInput(
     if (ai_name_v != .string) return error.InvalidAiName;
     if (tone_v != .string) return error.InvalidTone;
 
+    const kernel = if (root.get("persona_kernel")) |v|
+        (if (v == .string) v.string else "")
+    else
+        "";
+
     return .{
         .id = id_v.integer,
         .name = try allocator.dupe(u8, name_v.string),
         .ai_name = try allocator.dupe(u8, ai_name_v.string),
         .tone = try allocator.dupe(u8, tone_v.string),
+        .persona_kernel = try allocator.dupe(u8, kernel),
         .llm_chat = .{
             .temperature = getJsonFloat(root, "llm_chat_temp") orelse 0.7,
             .max_tokens = getJsonU32(root, "llm_chat_tokens") orelse 256,
@@ -1910,9 +1988,13 @@ fn buildPersonasJson(
     for (personas, 0..) |p, i| {
         if (i > 0) try out.append(allocator, ',');
 
+        const escaped_kernel = try escapeJsonString(allocator, p.persona_kernel);
+        defer allocator.free(escaped_kernel);
+
         try out.writer(allocator).print(
             "{{\"id\":{d},\"name\":\"{s}\",\"ai_name\":\"{s}\"," ++
-                "\"tone\":\"{s}\",\"llm_chat_temp\":{d:.2}," ++
+                "\"tone\":\"{s}\",\"persona_kernel\":\"{s}\"," ++
+                "\"llm_chat_temp\":{d:.2}," ++
                 "\"llm_chat_tokens\":{d},\"llm_reflect_temp\":{d:.2}," ++
                 "\"llm_reflect_tokens\":{d},\"llm_idle_temp\":{d:.2}," ++
                 "\"llm_idle_tokens\":{d},\"llm_episode_temp\":{d:.2}," ++
@@ -1924,6 +2006,7 @@ fn buildPersonasJson(
                 p.name,
                 p.ai_name,
                 p.tone,
+                escaped_kernel,
                 p.llm_chat.temperature,
                 p.llm_chat.max_tokens,
                 p.llm_reflection.temperature,
@@ -1938,6 +2021,33 @@ fn buildPersonasJson(
                 p.conf_governor,
                 p.created_at_ms,
             },
+        );
+    }
+
+    try out.appendSlice(allocator, "]}");
+    return out.toOwnedSlice(allocator);
+}
+
+fn buildIdentityPresetsJson(
+    allocator: std.mem.Allocator,
+    presets: []const Types.IdentityPreset,
+) ![]u8 {
+    var out: std.ArrayList(u8) = .empty;
+    errdefer out.deinit(allocator);
+
+    try out.appendSlice(allocator, "{\"presets\":[");
+
+    for (presets, 0..) |p, i| {
+        if (i > 0) try out.append(allocator, ',');
+
+        const escaped_name = try escapeJsonString(allocator, p.name);
+        defer allocator.free(escaped_name);
+        const escaped_text = try escapeJsonString(allocator, p.text);
+        defer allocator.free(escaped_text);
+
+        try out.writer(allocator).print(
+            "{{\"id\":{d},\"name\":\"{s}\",\"text\":\"{s}\"}}",
+            .{ p.id, escaped_name, escaped_text },
         );
     }
 

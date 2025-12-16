@@ -15,6 +15,7 @@ pub const PromptBuilder = struct {
         last_episode_summary: ?[]const u8,
         last_idle_thought: ?[]const u8,
         ai_name: []const u8,
+        persona_kernel: []const u8,
         prompts: PromptTemplates,
     ) ![]Types.Message {
         var msgs: std.ArrayList(Types.Message) = .empty;
@@ -29,6 +30,7 @@ pub const PromptBuilder = struct {
             last_episode_summary,
             last_idle_thought,
             ai_name,
+            persona_kernel,
             prompts.system_spine,
         );
         errdefer allocator.free(system_spine);
@@ -59,6 +61,7 @@ pub const PromptBuilder = struct {
         last_episode_summary: ?[]const u8,
         last_idle_thought: ?[]const u8,
         ai_name: []const u8,
+        persona_kernel: []const u8,
         spine_template: []const u8,
     ) ![]u8 {
         var out: std.ArrayList(u8) = .empty;
@@ -87,8 +90,14 @@ pub const PromptBuilder = struct {
             try out.appendSlice(allocator, ctx);
         }
 
-        if (identity.len != 0) {
+        if (identity.len != 0 or persona_kernel.len > 0) {
             try out.appendSlice(allocator, "IDENTITY CORE:\n");
+            if (persona_kernel.len > 0) {
+                try out.appendSlice(allocator, "- identity: ");
+                try out.appendSlice(allocator, ai_name);
+                try out.appendSlice(allocator, persona_kernel);
+                try out.append(allocator, '\n');
+            }
             for (identity) |e| {
                 try out.appendSlice(allocator, "- ");
                 try out.appendSlice(allocator, e.key);

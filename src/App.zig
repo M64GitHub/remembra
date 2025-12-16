@@ -47,6 +47,8 @@ pub const App = struct {
     prompt_idle_thinker_len: usize = 0,
     prompt_episode_compactor_buf: [2048]u8 = undefined,
     prompt_episode_compactor_len: usize = 0,
+    persona_kernel_buf: [2048]u8 = undefined,
+    persona_kernel_len: usize = 0,
 
     pub fn init(allocator: std.mem.Allocator, cli: *Cli) !App {
         const conn = ConfigConn{};
@@ -159,6 +161,18 @@ pub const App = struct {
         @memcpy(self.persona_name_buf[0..name_len], profile.ai_name[0..name_len]);
         self.persona_name_len = name_len;
         self.ident.name = self.persona_name_buf[0..self.persona_name_len];
+
+        // Update persona kernel
+        const kernel_len = @min(
+            profile.persona_kernel.len,
+            self.persona_kernel_buf.len,
+        );
+        @memcpy(
+            self.persona_kernel_buf[0..kernel_len],
+            profile.persona_kernel[0..kernel_len],
+        );
+        self.persona_kernel_len = kernel_len;
+        self.ident.persona_kernel = self.persona_kernel_buf[0..kernel_len];
 
         // Load and update prompts from DB
         var prompts = self.store.getPersonaPrompts(allocator, id) catch {

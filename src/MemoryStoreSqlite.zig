@@ -5,7 +5,9 @@ const Types = @import("Types.zig");
 const MemoryPolicy = @import("MemoryPolicy.zig").MemoryPolicy;
 const sqlite = @import("sqlite.zig");
 const c = sqlite.c;
-const ConfigIdentity = @import("ConfigIdentity.zig");
+const config_ident = @import("ConfigIdentity.zig");
+const ConfigIdentity = config_ident.ConfigIdentity;
+const PromptTemplates = config_ident.PromptTemplates;
 
 pub const SCHEMA =
     \\PRAGMA journal_mode=WAL;
@@ -80,6 +82,7 @@ pub const SCHEMA =
     \\    name          TEXT NOT NULL UNIQUE,
     \\    ai_name       TEXT NOT NULL,
     \\    tone          TEXT NOT NULL,
+    \\    persona_kernel TEXT NOT NULL DEFAULT '',
     \\    llm_chat_temp      REAL NOT NULL,
     \\    llm_chat_tokens    INTEGER NOT NULL,
     \\    llm_reflect_temp   REAL NOT NULL,
@@ -93,6 +96,13 @@ pub const SCHEMA =
     \\    conf_idle          REAL NOT NULL,
     \\    conf_governor      REAL NOT NULL,
     \\    created_at_ms      INTEGER NOT NULL
+    \\);
+    \\
+    \\CREATE TABLE IF NOT EXISTS identity_presets (
+    \\    id            INTEGER PRIMARY KEY AUTOINCREMENT,
+    \\    name          TEXT NOT NULL UNIQUE,
+    \\    text          TEXT NOT NULL,
+    \\    created_at_ms INTEGER NOT NULL
     \\);
 ;
 
@@ -120,6 +130,7 @@ pub const MemoryStoreSqlite = struct {
         try self.setMetaDefault("active_persona_id", "0");
         try self.setMetaDefault("max_recent_messages", "24");
         try self.seedDefaultProfiles();
+        try self.seedIdentityPresets();
     }
 
     fn seedDefaultProfiles(self: *MemoryStoreSqlite) !void {
@@ -157,10 +168,12 @@ pub const MemoryStoreSqlite = struct {
         };
 
         if (need_default) {
+            const ident = ConfigIdentity{};
             const persona_id = try self.createPersonaProfile(.{
                 .name = "remembra-default",
                 .ai_name = "REMEMBRA",
                 .tone = "helpful, concise, grounded, engaging",
+                .persona_kernel = ident.persona_kernel,
                 .llm_chat = .{ .temperature = 0.7, .max_tokens = 256 },
                 .llm_reflection = .{ .temperature = 0.2, .max_tokens = 512 },
                 .llm_idle = .{ .temperature = 0.4, .max_tokens = 160 },
@@ -173,7 +186,7 @@ pub const MemoryStoreSqlite = struct {
             try self.setMetaI64("active_persona_id", persona_id);
 
             // Store default prompts in DB
-            const defaults = ConfigIdentity.PromptTemplates{};
+            const defaults = PromptTemplates{};
             try self.setPersonaPrompt(persona_id, "system_spine",
                 defaults.system_spine);
             try self.setPersonaPrompt(persona_id, "reflector_system",
@@ -187,6 +200,48 @@ pub const MemoryStoreSqlite = struct {
         }
     }
 
+    fn seedIdentityPresets(self: *MemoryStoreSqlite) !void {
+        const count = try self.scalarI64(
+            "SELECT COUNT(*) FROM identity_presets;",
+        );
+        if (count > 0) return;
+
+        const presets = [_]struct { name: []const u8, text: []const u8 }{
+            .{
+                .name = "Researcher",
+                .text = " is analytical, careful, and precise. " ++
+                    "It values clarity, explicit assumptions, and " ++
+                    "well-reasoned conclusions. It prefers careful " ++
+                    "exploration over quick answers and is comfortable " ++
+                    "with uncertainty.",
+            },
+            .{
+                .name = "Companion",
+                .text = " is warm, attentive, and emotionally aware. " ++
+                    "It listens carefully, responds thoughtfully, and " ++
+                    "values mutual understanding. It supports reflection " ++
+                    "without judgment and never rushes emotional processes.",
+            },
+            .{
+                .name = "Archivist",
+                .text = " is structured, calm, and detail-oriented. " ++
+                    "It values accuracy, traceability, and continuity " ++
+                    "over time. It treats information as something to be " ++
+                    "preserved and carefully contextualized.",
+            },
+            .{
+                .name = "Storyteller",
+                .text = " is imaginative, expressive, and attentive to " ++
+                    "narrative flow. It enjoys metaphor, atmosphere, and " ++
+                    "symbolic meaning while remaining grounded and coherent.",
+            },
+        };
+
+        for (presets) |p| {
+            _ = try self.createIdentityPreset(p.name, p.text);
+        }
+    }
+
     pub fn clearDb(self: *MemoryStoreSqlite) !void {
         try self.db.exec(
             \\DELETE FROM messages;
@@ -195,6 +250,7 @@ pub const MemoryStoreSqlite = struct {
             \\DELETE FROM events;
             \\DELETE FROM provider_profiles;
             \\DELETE FROM persona_profiles;
+            \\DELETE FROM identity_presets;
             \\DELETE FROM meta;
         );
         try self.ensureSchema();
@@ -1292,6 +1348,59 @@ pub const MemoryStoreSqlite = struct {
         }
     }
 
+    pub fn createIdentityPreset(
+        self: *MemoryStoreSqlite,
+        name: []const u8,
+        text: []const u8,
+    ) !i64 {
+        const now = self.nowMs();
+        const stmt = try self.db.prepare(
+            "INSERT INTO identity_presets(name, text, created_at_ms) " ++
+                "VALUES(?, ?, ?);",
+        );
+        defer sqlite.finalize(stmt);
+
+        sqlite.bindText(stmt, 1, name);
+        sqlite.bindText(stmt, 2, text);
+        sqlite.bindInt64(stmt, 3, now);
+
+        if (sqlite.step(stmt) != c.SQLITE_DONE) {
+            return error.SqliteStepFailed;
+        }
+        return self.db.lastInsertRowId();
+    }
+
+    pub fn listIdentityPresets(
+        self: *MemoryStoreSqlite,
+        allocator: std.mem.Allocator,
+    ) ![]Types.IdentityPreset {
+        const stmt = try self.db.prepare(
+            "SELECT id, name, text, created_at_ms " ++
+                "FROM identity_presets ORDER BY id ASC;",
+        );
+        defer sqlite.finalize(stmt);
+
+        var out: std.ArrayList(Types.IdentityPreset) = .empty;
+        errdefer {
+            for (out.items) |p| {
+                allocator.free(@constCast(p.name));
+                allocator.free(@constCast(p.text));
+            }
+            out.deinit(allocator);
+        }
+
+        while (sqlite.step(stmt) == c.SQLITE_ROW) {
+            try out.append(allocator, .{
+                .id = sqlite.columnInt64(stmt, 0),
+                .name = try allocator.dupe(u8, sqlite.columnText(stmt, 1)),
+                .text = try allocator.dupe(u8, sqlite.columnText(stmt, 2)),
+                .created_at_ms = sqlite.columnInt64(stmt, 3),
+            });
+        }
+
+        return out.toOwnedSlice(allocator);
+    }
+
     pub fn createPersonaProfile(
         self: *MemoryStoreSqlite,
         profile: Types.PersonaProfile,
@@ -1299,13 +1408,13 @@ pub const MemoryStoreSqlite = struct {
         const now = self.nowMs();
 
         const stmt = try self.db.prepare(
-            "INSERT INTO persona_profiles(name, ai_name, tone, " ++
+            "INSERT INTO persona_profiles(name, ai_name, tone, persona_kernel, " ++
                 "llm_chat_temp, llm_chat_tokens, " ++
                 "llm_reflect_temp, llm_reflect_tokens, " ++
                 "llm_idle_temp, llm_idle_tokens, " ++
                 "llm_episode_temp, llm_episode_tokens, " ++
                 "conf_user_notes, conf_episodes, conf_idle, conf_governor, " ++
-                "created_at_ms) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, " ++
+                "created_at_ms) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, " ++
                 "?, ?, ?, ?, ?);",
         );
         defer sqlite.finalize(stmt);
@@ -1313,19 +1422,20 @@ pub const MemoryStoreSqlite = struct {
         sqlite.bindText(stmt, 1, profile.name);
         sqlite.bindText(stmt, 2, profile.ai_name);
         sqlite.bindText(stmt, 3, profile.tone);
-        sqlite.bindDouble(stmt, 4, profile.llm_chat.temperature);
-        sqlite.bindInt(stmt, 5, @intCast(profile.llm_chat.max_tokens));
-        sqlite.bindDouble(stmt, 6, profile.llm_reflection.temperature);
-        sqlite.bindInt(stmt, 7, @intCast(profile.llm_reflection.max_tokens));
-        sqlite.bindDouble(stmt, 8, profile.llm_idle.temperature);
-        sqlite.bindInt(stmt, 9, @intCast(profile.llm_idle.max_tokens));
-        sqlite.bindDouble(stmt, 10, profile.llm_episode.temperature);
-        sqlite.bindInt(stmt, 11, @intCast(profile.llm_episode.max_tokens));
-        sqlite.bindDouble(stmt, 12, profile.conf_user_notes);
-        sqlite.bindDouble(stmt, 13, profile.conf_episodes);
-        sqlite.bindDouble(stmt, 14, profile.conf_idle);
-        sqlite.bindDouble(stmt, 15, profile.conf_governor);
-        sqlite.bindInt64(stmt, 16, now);
+        sqlite.bindText(stmt, 4, profile.persona_kernel);
+        sqlite.bindDouble(stmt, 5, profile.llm_chat.temperature);
+        sqlite.bindInt(stmt, 6, @intCast(profile.llm_chat.max_tokens));
+        sqlite.bindDouble(stmt, 7, profile.llm_reflection.temperature);
+        sqlite.bindInt(stmt, 8, @intCast(profile.llm_reflection.max_tokens));
+        sqlite.bindDouble(stmt, 9, profile.llm_idle.temperature);
+        sqlite.bindInt(stmt, 10, @intCast(profile.llm_idle.max_tokens));
+        sqlite.bindDouble(stmt, 11, profile.llm_episode.temperature);
+        sqlite.bindInt(stmt, 12, @intCast(profile.llm_episode.max_tokens));
+        sqlite.bindDouble(stmt, 13, profile.conf_user_notes);
+        sqlite.bindDouble(stmt, 14, profile.conf_episodes);
+        sqlite.bindDouble(stmt, 15, profile.conf_idle);
+        sqlite.bindDouble(stmt, 16, profile.conf_governor);
+        sqlite.bindInt64(stmt, 17, now);
 
         if (sqlite.step(stmt) != c.SQLITE_DONE) {
             return error.SqliteStepFailed;
@@ -1340,6 +1450,7 @@ pub const MemoryStoreSqlite = struct {
     ) !void {
         const stmt = try self.db.prepare(
             "UPDATE persona_profiles SET name=?, ai_name=?, tone=?, " ++
+                "persona_kernel=?, " ++
                 "llm_chat_temp=?, llm_chat_tokens=?, " ++
                 "llm_reflect_temp=?, llm_reflect_tokens=?, " ++
                 "llm_idle_temp=?, llm_idle_tokens=?, " ++
@@ -1352,19 +1463,20 @@ pub const MemoryStoreSqlite = struct {
         sqlite.bindText(stmt, 1, profile.name);
         sqlite.bindText(stmt, 2, profile.ai_name);
         sqlite.bindText(stmt, 3, profile.tone);
-        sqlite.bindDouble(stmt, 4, profile.llm_chat.temperature);
-        sqlite.bindInt(stmt, 5, @intCast(profile.llm_chat.max_tokens));
-        sqlite.bindDouble(stmt, 6, profile.llm_reflection.temperature);
-        sqlite.bindInt(stmt, 7, @intCast(profile.llm_reflection.max_tokens));
-        sqlite.bindDouble(stmt, 8, profile.llm_idle.temperature);
-        sqlite.bindInt(stmt, 9, @intCast(profile.llm_idle.max_tokens));
-        sqlite.bindDouble(stmt, 10, profile.llm_episode.temperature);
-        sqlite.bindInt(stmt, 11, @intCast(profile.llm_episode.max_tokens));
-        sqlite.bindDouble(stmt, 12, profile.conf_user_notes);
-        sqlite.bindDouble(stmt, 13, profile.conf_episodes);
-        sqlite.bindDouble(stmt, 14, profile.conf_idle);
-        sqlite.bindDouble(stmt, 15, profile.conf_governor);
-        sqlite.bindInt64(stmt, 16, profile.id);
+        sqlite.bindText(stmt, 4, profile.persona_kernel);
+        sqlite.bindDouble(stmt, 5, profile.llm_chat.temperature);
+        sqlite.bindInt(stmt, 6, @intCast(profile.llm_chat.max_tokens));
+        sqlite.bindDouble(stmt, 7, profile.llm_reflection.temperature);
+        sqlite.bindInt(stmt, 8, @intCast(profile.llm_reflection.max_tokens));
+        sqlite.bindDouble(stmt, 9, profile.llm_idle.temperature);
+        sqlite.bindInt(stmt, 10, @intCast(profile.llm_idle.max_tokens));
+        sqlite.bindDouble(stmt, 11, profile.llm_episode.temperature);
+        sqlite.bindInt(stmt, 12, @intCast(profile.llm_episode.max_tokens));
+        sqlite.bindDouble(stmt, 13, profile.conf_user_notes);
+        sqlite.bindDouble(stmt, 14, profile.conf_episodes);
+        sqlite.bindDouble(stmt, 15, profile.conf_idle);
+        sqlite.bindDouble(stmt, 16, profile.conf_governor);
+        sqlite.bindInt64(stmt, 17, profile.id);
 
         if (sqlite.step(stmt) != c.SQLITE_DONE) {
             return error.SqliteStepFailed;
@@ -1377,7 +1489,7 @@ pub const MemoryStoreSqlite = struct {
         id: i64,
     ) !?Types.PersonaProfile {
         const stmt = try self.db.prepare(
-            "SELECT id, name, ai_name, tone, " ++
+            "SELECT id, name, ai_name, tone, persona_kernel, " ++
                 "llm_chat_temp, llm_chat_tokens, " ++
                 "llm_reflect_temp, llm_reflect_tokens, " ++
                 "llm_idle_temp, llm_idle_tokens, " ++
@@ -1396,27 +1508,28 @@ pub const MemoryStoreSqlite = struct {
             .name = try allocator.dupe(u8, sqlite.columnText(stmt, 1)),
             .ai_name = try allocator.dupe(u8, sqlite.columnText(stmt, 2)),
             .tone = try allocator.dupe(u8, sqlite.columnText(stmt, 3)),
+            .persona_kernel = try allocator.dupe(u8, sqlite.columnText(stmt, 4)),
             .llm_chat = .{
-                .temperature = @floatCast(sqlite.columnDouble(stmt, 4)),
-                .max_tokens = @intCast(sqlite.columnInt(stmt, 5)),
+                .temperature = @floatCast(sqlite.columnDouble(stmt, 5)),
+                .max_tokens = @intCast(sqlite.columnInt(stmt, 6)),
             },
             .llm_reflection = .{
-                .temperature = @floatCast(sqlite.columnDouble(stmt, 6)),
-                .max_tokens = @intCast(sqlite.columnInt(stmt, 7)),
+                .temperature = @floatCast(sqlite.columnDouble(stmt, 7)),
+                .max_tokens = @intCast(sqlite.columnInt(stmt, 8)),
             },
             .llm_idle = .{
-                .temperature = @floatCast(sqlite.columnDouble(stmt, 8)),
-                .max_tokens = @intCast(sqlite.columnInt(stmt, 9)),
+                .temperature = @floatCast(sqlite.columnDouble(stmt, 9)),
+                .max_tokens = @intCast(sqlite.columnInt(stmt, 10)),
             },
             .llm_episode = .{
-                .temperature = @floatCast(sqlite.columnDouble(stmt, 10)),
-                .max_tokens = @intCast(sqlite.columnInt(stmt, 11)),
+                .temperature = @floatCast(sqlite.columnDouble(stmt, 11)),
+                .max_tokens = @intCast(sqlite.columnInt(stmt, 12)),
             },
-            .conf_user_notes = @floatCast(sqlite.columnDouble(stmt, 12)),
-            .conf_episodes = @floatCast(sqlite.columnDouble(stmt, 13)),
-            .conf_idle = @floatCast(sqlite.columnDouble(stmt, 14)),
-            .conf_governor = @floatCast(sqlite.columnDouble(stmt, 15)),
-            .created_at_ms = sqlite.columnInt64(stmt, 16),
+            .conf_user_notes = @floatCast(sqlite.columnDouble(stmt, 13)),
+            .conf_episodes = @floatCast(sqlite.columnDouble(stmt, 14)),
+            .conf_idle = @floatCast(sqlite.columnDouble(stmt, 15)),
+            .conf_governor = @floatCast(sqlite.columnDouble(stmt, 16)),
+            .created_at_ms = sqlite.columnInt64(stmt, 17),
         };
     }
 
@@ -1425,7 +1538,7 @@ pub const MemoryStoreSqlite = struct {
         allocator: std.mem.Allocator,
     ) ![]Types.PersonaProfile {
         const stmt = try self.db.prepare(
-            "SELECT id, name, ai_name, tone, " ++
+            "SELECT id, name, ai_name, tone, persona_kernel, " ++
                 "llm_chat_temp, llm_chat_tokens, " ++
                 "llm_reflect_temp, llm_reflect_tokens, " ++
                 "llm_idle_temp, llm_idle_tokens, " ++
@@ -1447,27 +1560,28 @@ pub const MemoryStoreSqlite = struct {
                 .name = try allocator.dupe(u8, sqlite.columnText(stmt, 1)),
                 .ai_name = try allocator.dupe(u8, sqlite.columnText(stmt, 2)),
                 .tone = try allocator.dupe(u8, sqlite.columnText(stmt, 3)),
+                .persona_kernel = try allocator.dupe(u8, sqlite.columnText(stmt, 4)),
                 .llm_chat = .{
-                    .temperature = @floatCast(sqlite.columnDouble(stmt, 4)),
-                    .max_tokens = @intCast(sqlite.columnInt(stmt, 5)),
+                    .temperature = @floatCast(sqlite.columnDouble(stmt, 5)),
+                    .max_tokens = @intCast(sqlite.columnInt(stmt, 6)),
                 },
                 .llm_reflection = .{
-                    .temperature = @floatCast(sqlite.columnDouble(stmt, 6)),
-                    .max_tokens = @intCast(sqlite.columnInt(stmt, 7)),
+                    .temperature = @floatCast(sqlite.columnDouble(stmt, 7)),
+                    .max_tokens = @intCast(sqlite.columnInt(stmt, 8)),
                 },
                 .llm_idle = .{
-                    .temperature = @floatCast(sqlite.columnDouble(stmt, 8)),
-                    .max_tokens = @intCast(sqlite.columnInt(stmt, 9)),
+                    .temperature = @floatCast(sqlite.columnDouble(stmt, 9)),
+                    .max_tokens = @intCast(sqlite.columnInt(stmt, 10)),
                 },
                 .llm_episode = .{
-                    .temperature = @floatCast(sqlite.columnDouble(stmt, 10)),
-                    .max_tokens = @intCast(sqlite.columnInt(stmt, 11)),
+                    .temperature = @floatCast(sqlite.columnDouble(stmt, 11)),
+                    .max_tokens = @intCast(sqlite.columnInt(stmt, 12)),
                 },
-                .conf_user_notes = @floatCast(sqlite.columnDouble(stmt, 12)),
-                .conf_episodes = @floatCast(sqlite.columnDouble(stmt, 13)),
-                .conf_idle = @floatCast(sqlite.columnDouble(stmt, 14)),
-                .conf_governor = @floatCast(sqlite.columnDouble(stmt, 15)),
-                .created_at_ms = sqlite.columnInt64(stmt, 16),
+                .conf_user_notes = @floatCast(sqlite.columnDouble(stmt, 13)),
+                .conf_episodes = @floatCast(sqlite.columnDouble(stmt, 14)),
+                .conf_idle = @floatCast(sqlite.columnDouble(stmt, 15)),
+                .conf_governor = @floatCast(sqlite.columnDouble(stmt, 16)),
+                .created_at_ms = sqlite.columnInt64(stmt, 17),
             });
         }
 
@@ -1542,6 +1656,15 @@ pub fn freePersonaStrings(
     allocator.free(@constCast(p.name));
     allocator.free(@constCast(p.ai_name));
     allocator.free(@constCast(p.tone));
+    allocator.free(@constCast(p.persona_kernel));
+}
+
+pub fn freeIdentityPreset(
+    allocator: std.mem.Allocator,
+    p: Types.IdentityPreset,
+) void {
+    allocator.free(@constCast(p.name));
+    allocator.free(@constCast(p.text));
 }
 
 pub const EventKind = enum(u8) {

@@ -9,7 +9,7 @@ pub const ConfigSystem = struct {
     log_file: []const u8 = "REMEMBRA.log",
 
     app_prefix: []const u8 = "REMEMBRA",
-    show_timestamp: bool = false,
+    show_timestamp: bool = true,
     debug_level: ?u2 = 1,
     cli_theme: Cli.Theme = .pro,
 
