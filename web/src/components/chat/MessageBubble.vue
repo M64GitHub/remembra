@@ -289,7 +289,7 @@ onUnmounted(() => {
 
 .message-time {
   font-size: var(--text-xs);
-  color: var(--text-dim);
+  color: var(--text-muted);
 }
 
 .user .message-time {
@@ -300,7 +300,7 @@ onUnmounted(() => {
   font-size: var(--text-sm);
   padding: 2px 6px;
   border-radius: var(--border-radius-sm);
-  color: var(--text-dim);
+  color: var(--text-muted);
   transition: all var(--transition-fast);
 }
 
