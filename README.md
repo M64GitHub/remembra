@@ -1,4 +1,4 @@
-![remembra-architecture](https://github.com/user-attachments/assets/d687742e-f589-4b7b-9fa8-5323e1c07071)# REMEMBRA
+# REMEMBRA
 
 **Add persistent memory, governed reflection, and time awareness to any Ollama model.**
 
@@ -54,6 +54,7 @@ The model may suggest. The system decides.
 REMEMBRA operates as a pipeline with distinct responsibilities:
 
 <p align="center">
+  ![remembra-architecture](https://github.com/user-attachments/assets/d687742e-f589-4b7b-9fa8-5323e1c07071)
   ![Uploadi<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 600" width="800" height="600">
   <defs>
     <linearGradient id="tealGlow" x1="0%" y1="0%" x2="100%" y2="100%">
