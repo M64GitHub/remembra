@@ -1,7 +1,9 @@
 /* Markdown Content Styles - Ultra Professional Dark Theme */
+/* Important: override pre-wrap from .message-content scoped style */
 
 .markdown-content {
-  line-height: var(--leading-relaxed);
+  line-height: var(--leading-normal);
+  white-space: normal !important;
 }
 
 /* Headers - Subtle, not oversized */
@@ -167,6 +169,7 @@
   overflow-x: auto;
   background: transparent;
   border-radius: 0;
+  white-space: pre;
 }
 
 .markdown-content .md-code-block code {
@@ -183,6 +186,16 @@
 .markdown-content ol {
   margin: var(--space-sm) 0;
   padding-left: var(--space-xl);
+}
+
+.markdown-content ul:first-child,
+.markdown-content ol:first-child {
+  margin-top: 0;
+}
+
+.markdown-content ul:last-child,
+.markdown-content ol:last-child {
+  margin-bottom: 0;
 }
 
 .markdown-content li {
@@ -209,16 +222,25 @@
 /* Nested lists */
 .markdown-content li > ul,
 .markdown-content li > ol {
-  margin: var(--space-xs) 0;
+  margin: 0;
+  margin-top: var(--space-xs);
 }
 
 /* Blockquotes */
 .markdown-content blockquote {
-  margin: var(--space-md) 0;
+  margin: var(--space-sm) 0;
   padding: var(--space-sm) var(--space-md);
   border-left: 3px solid var(--accent-primary);
   background: rgba(102, 126, 234, 0.05);
   color: var(--text-secondary);
+}
+
+.markdown-content blockquote:first-child {
+  margin-top: 0;
+}
+
+.markdown-content blockquote:last-child {
+  margin-bottom: 0;
 }
 
 .markdown-content blockquote p {

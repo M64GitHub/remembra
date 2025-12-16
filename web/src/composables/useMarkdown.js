@@ -153,7 +153,7 @@ renderer.link = function ({ href, title, text }) {
 // Configure marked
 marked.setOptions({
   gfm: true,
-  breaks: false,
+  breaks: true,
   renderer: renderer
 })
 
