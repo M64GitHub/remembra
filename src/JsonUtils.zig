@@ -57,6 +57,39 @@ fn skipWhitespace(s: []const u8, start: usize) usize {
     return i;
 }
 
+/// Strips trailing commas from JSON (e.g., `,}` or `,]`).
+/// LLMs often produce invalid JSON with trailing commas.
+/// Returns allocated string that caller must free.
+pub fn stripTrailingCommas(
+    allocator: std.mem.Allocator,
+    json: []const u8,
+) ![]u8 {
+    var out: std.ArrayList(u8) = .empty;
+    errdefer out.deinit(allocator);
+
+    var i: usize = 0;
+    while (i < json.len) {
+        if (json[i] == ',') {
+            // Look ahead past whitespace for ] or }
+            var j = i + 1;
+            while (j < json.len and isWhitespace(json[j])) j += 1;
+            if (j < json.len and (json[j] == ']' or json[j] == '}')) {
+                // Skip the comma, copy whitespace
+                i += 1;
+                continue;
+            }
+        }
+        try out.append(allocator, json[i]);
+        i += 1;
+    }
+
+    return out.toOwnedSlice(allocator);
+}
+
+fn isWhitespace(c: u8) bool {
+    return c == ' ' or c == '\n' or c == '\r' or c == '\t';
+}
+
 test "extractJsonObject from markdown code block" {
     const input = "Here is the JSON:\n```json\n{\"foo\": 1}\n```\nDone.";
     const result = extractJsonObject(input);
@@ -89,4 +122,31 @@ test "extractJsonObject skips inline examples to find proposals" {
     ;
     const result = extractJsonObject(input);
     try std.testing.expectEqualStrings("{\"proposals\": [{\"a\": 1}]}", result);
+}
+
+test "stripTrailingCommas removes trailing commas" {
+    const allocator = std.testing.allocator;
+
+    const input = "{\"a\": 1,}";
+    const result = try stripTrailingCommas(allocator, input);
+    defer allocator.free(result);
+    try std.testing.expectEqualStrings("{\"a\": 1}", result);
+}
+
+test "stripTrailingCommas handles arrays" {
+    const allocator = std.testing.allocator;
+
+    const input = "[1, 2, 3,]";
+    const result = try stripTrailingCommas(allocator, input);
+    defer allocator.free(result);
+    try std.testing.expectEqualStrings("[1, 2, 3]", result);
+}
+
+test "stripTrailingCommas handles nested with whitespace" {
+    const allocator = std.testing.allocator;
+
+    const input = "{\"arr\": [1,\n  ],\n}";
+    const result = try stripTrailingCommas(allocator, input);
+    defer allocator.free(result);
+    try std.testing.expectEqualStrings("{\"arr\": [1\n  ]\n}", result);
 }

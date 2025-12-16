@@ -354,6 +354,7 @@ fn cmdEpisodeCompact(allocator: std.mem.Allocator, app: *App) !Result {
         app.ident.llm_episode,
         app.ident.prompts,
         app.ident.name,
+        app.cli,
     );
     defer {
         allocator.free(ep.title);

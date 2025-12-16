@@ -54,7 +54,10 @@ test "Temporal formatting hours" {
     defer _ = gpa.deinit();
     const allocator = gpa.allocator();
 
-    const s = try Temporal.formatDuration(allocator, 7 * 60 * 60 * 1000 + 2 * 60 * 1000);
+    const s = try Temporal.formatDuration(
+        allocator,
+        7 * 60 * 60 * 1000 + 2 * 60 * 1000,
+    );
     defer allocator.free(s);
 
     try std.testing.expectEqualStrings("7h 2m", s);

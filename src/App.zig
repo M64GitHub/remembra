@@ -158,7 +158,10 @@ pub const App = struct {
 
         // Update AI name
         const name_len = @min(profile.ai_name.len, self.persona_name_buf.len);
-        @memcpy(self.persona_name_buf[0..name_len], profile.ai_name[0..name_len]);
+        @memcpy(
+            self.persona_name_buf[0..name_len],
+            profile.ai_name[0..name_len],
+        );
         self.persona_name_len = name_len;
         self.ident.name = self.persona_name_buf[0..self.persona_name_len];
 

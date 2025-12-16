@@ -5,7 +5,6 @@ const Types = @import("Types.zig");
 const Cli = @import("Cli.zig").Cli;
 const App = @import("App.zig").App;
 const InjectionGuard = @import("InjectionGuard.zig");
-const Intent = @import("Intent.zig");
 const IdleThinker = @import("IdleThinker.zig").IdleThinker;
 const Retrieval = @import("Retrieval.zig").Retrieval;
 const PromptBuilder = @import("PromptBuilder.zig").PromptBuilder;
@@ -86,8 +85,7 @@ fn checkSecurity(app: *App, pid: i64, input: []const u8) bool {
         );
         app.events.emit(pid, .security_warning, "injection", guard.reason);
     }
-    const intent = Intent.classifyMemoryIntent(input);
-    return !guard.is_attack and (intent == .explicit_store);
+    return !guard.is_attack;
 }
 
 fn runIdleThinker(allocator: std.mem.Allocator, app: *App, pid: i64) !void {
@@ -115,7 +113,11 @@ fn runIdleThinker(allocator: std.mem.Allocator, app: *App, pid: i64) !void {
     );
 }
 
-fn gatherContext(allocator: std.mem.Allocator, app: *App, pid: i64) !TurnContext {
+fn gatherContext(
+    allocator: std.mem.Allocator,
+    app: *App,
+    pid: i64,
+) !TurnContext {
     const identity = try app.store.loadIdentityCoreWithDefaults(
         allocator,
         pid,
@@ -173,8 +175,16 @@ fn gatherContext(allocator: std.mem.Allocator, app: *App, pid: i64) !TurnContext
     }
 
     const last_user_ms = app.store.getLastUserMsgMs();
-    const last_episode = app.store.latestActiveObjectByKey(pid, "episode", "summary");
-    const last_thought = app.store.latestActiveObjectByKey(pid, "self", "thought");
+    const last_episode = app.store.latestActiveObjectByKey(
+        pid,
+        "episode",
+        "summary",
+    );
+    const last_thought = app.store.latestActiveObjectByKey(
+        pid,
+        "self",
+        "thought",
+    );
 
     return .{
         .identity = identity,
@@ -244,7 +254,7 @@ fn generateReply(
         .model = app.conn.ollama_model,
         .temperature = app.ident.llm_chat.temperature,
         .max_tokens = app.ident.llm_chat.max_tokens,
-    });
+    }, app.cli);
     errdefer allocator.free(reply);
 
     try app.store.insertMessage(allocator, pid, .assistant, reply);
@@ -348,13 +358,17 @@ fn storeLastContext(
     model_msgs: []const Types.Message,
     ctx: *const TurnContext,
 ) void {
-    const system_prompt = if (model_msgs.len > 0 and model_msgs[0].role == .system)
+    const system_prompt = if (model_msgs.len > 0 and
+        model_msgs[0].role == .system)
         model_msgs[0].content
     else
         "";
 
     const copy_len = @min(system_prompt.len, app.last_context_prompt_buf.len);
-    @memcpy(app.last_context_prompt_buf[0..copy_len], system_prompt[0..copy_len]);
+    @memcpy(
+        app.last_context_prompt_buf[0..copy_len],
+        system_prompt[0..copy_len],
+    );
 
     app.last_context = .{
         .system_prompt = app.last_context_prompt_buf[0..copy_len],

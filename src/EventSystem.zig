@@ -56,7 +56,13 @@ pub const EventSystem = struct {
         kind_filter: ?EventKind,
         limit: usize,
     ) ![]Event {
-        return self.store.queryEvents(allocator, persona_id, since_ms, kind_filter, limit);
+        return self.store.queryEvents(
+            allocator,
+            persona_id,
+            since_ms,
+            kind_filter,
+            limit,
+        );
     }
 };
 

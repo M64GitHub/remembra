@@ -1,4 +1,6 @@
 <script setup>
+import { ref } from 'vue'
+
 const props = defineProps({
   provider: {
     type: Object,
@@ -14,12 +16,36 @@ const props = defineProps({
   },
 })
 
-const emit = defineEmits(['activate', 'delete'])
+const emit = defineEmits(['activate', 'delete', 'edit'])
+const showDetails = ref(false)
 
 function handleDelete() {
   if (confirm(`Delete provider "${props.provider.name}"?`)) {
-    emit('delete', props.provider.name)
+    emit('delete', props.provider.id)
   }
+}
+
+function formatSize(bytes) {
+  if (!bytes || bytes === 0) return '-'
+  const gb = bytes / (1024 * 1024 * 1024)
+  if (gb >= 1) return gb.toFixed(1) + ' GB'
+  const mb = bytes / (1024 * 1024)
+  return mb.toFixed(0) + ' MB'
+}
+
+function formatDate(isoStr) {
+  if (!isoStr) return '-'
+  try {
+    const d = new Date(isoStr)
+    return d.toLocaleDateString()
+  } catch {
+    return isoStr.slice(0, 10)
+  }
+}
+
+function truncateDigest(digest) {
+  if (!digest) return '-'
+  return digest.slice(0, 12) + '...'
 }
 </script>
 
@@ -50,12 +76,46 @@ function handleDelete() {
     </div>
 
     <button
-      v-if="!isActive"
-      class="activate-btn"
-      @click="emit('activate')"
+      class="details-toggle"
+      @click="showDetails = !showDetails"
     >
-      Set Active
+      {{ showDetails ? 'Hide details' : 'Show details' }}
+      <span class="toggle-icon">{{ showDetails ? '\u25B2' : '\u25BC' }}</span>
     </button>
+
+    <div class="extended-details" v-if="showDetails">
+      <div class="detail-row">
+        <span class="detail-label">Size</span>
+        <span class="detail-value">{{ formatSize(provider.size) }}</span>
+      </div>
+      <div class="detail-row">
+        <span class="detail-label">Modified</span>
+        <span class="detail-value">{{ formatDate(provider.modified_at) }}</span>
+      </div>
+      <div class="detail-row">
+        <span class="detail-label">Digest</span>
+        <span class="detail-value" :title="provider.digest">
+          {{ truncateDigest(provider.digest) }}
+        </span>
+      </div>
+    </div>
+
+    <div class="card-actions">
+      <button
+        class="edit-btn"
+        @click="emit('edit', provider)"
+        title="Edit"
+      >
+        Edit
+      </button>
+      <button
+        v-if="!isActive"
+        class="activate-btn"
+        @click="emit('activate')"
+      >
+        Set Active
+      </button>
+    </div>
   </div>
 </template>
 
@@ -127,6 +187,33 @@ function handleDelete() {
   margin-bottom: var(--space-xs);
 }
 
+.details-toggle {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-xs);
+  width: 100%;
+  padding: 3px;
+  background: transparent;
+  color: var(--text-dim);
+  font-size: 10px;
+  transition: color var(--transition-fast);
+}
+
+.details-toggle:hover {
+  color: var(--text-secondary);
+}
+
+.toggle-icon {
+  font-size: 8px;
+}
+
+.extended-details {
+  margin-top: var(--space-xs);
+  padding-top: var(--space-xs);
+  border-top: var(--border-subtle);
+}
+
 .detail-row {
   display: flex;
   gap: var(--space-xs);
@@ -147,14 +234,27 @@ function handleDelete() {
   white-space: nowrap;
 }
 
+.card-actions {
+  display: flex;
+  gap: var(--space-xs);
+  margin-top: var(--space-xs);
+}
+
+.edit-btn,
 .activate-btn {
-  width: 100%;
+  flex: 1;
   padding: 4px 8px;
   background: var(--bg-tertiary);
   border-radius: var(--border-radius-sm);
   color: var(--text-secondary);
   font-size: var(--text-xs);
   transition: all var(--transition-fast);
+}
+
+.edit-btn:hover {
+  background: var(--bg-tertiary);
+  color: var(--text-primary);
+  border: 1px solid var(--accent-primary);
 }
 
 .activate-btn:hover {

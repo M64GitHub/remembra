@@ -65,7 +65,12 @@ pub const Governor = struct {
                             @divFloor(params.rate_limit_ms - (now - t), 1000),
                         },
                     );
-                    events.emit(persona_id, .governor_blocked, p.subject, "rate-limited");
+                    events.emit(
+                        persona_id,
+                        .governor_blocked,
+                        p.subject,
+                        "rate-limited",
+                    );
                     continue;
                 }
             }
@@ -78,21 +83,37 @@ pub const Governor = struct {
                 p.object,
             )) {
                 cli.msg(.inf, "[Governor] dedupe: already stored", .{});
-                events.emit(persona_id, .governor_blocked, p.subject, "duplicate");
+                events.emit(
+                    persona_id,
+                    .governor_blocked,
+                    p.subject,
+                    "duplicate",
+                );
                 continue;
             }
 
-            const id = try store.addMemoryGoverned(allocator, persona_id, policy, .{
-                .kind = p.kind,
-                .subject = p.subject,
-                .predicate = p.predicate,
-                .object = p.object,
-                .confidence = p.confidence,
-                .is_active = true,
-            });
+            const id = try store.addMemoryGoverned(
+                allocator,
+                persona_id,
+                policy,
+                .{
+                    .kind = p.kind,
+                    .subject = p.subject,
+                    .predicate = p.predicate,
+                    .object = p.object,
+                    .confidence = p.confidence,
+                    .is_active = true,
+                },
+            );
 
             cli.msg(.ok, "[Governor] accepted -> stored as [mem#{d}]", .{id});
-            events.emitFmt(persona_id, .governor_accepted, p.subject, "id={d}", .{id});
+            events.emitFmt(
+                persona_id,
+                .governor_accepted,
+                p.subject,
+                "id={d}",
+                .{id},
+            );
             events.emitFmt(
                 persona_id,
                 .memory_stored,

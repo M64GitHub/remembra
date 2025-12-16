@@ -4,6 +4,7 @@ const JsonUtils = @import("JsonUtils.zig");
 const ConfigIdentity = @import("ConfigIdentity.zig");
 const LlmParams = ConfigIdentity.LlmParams;
 const PromptTemplates = ConfigIdentity.PromptTemplates;
+const Cli = @import("Cli.zig").Cli;
 
 pub const EpisodeSummary = struct {
     title: []const u8,
@@ -18,6 +19,7 @@ pub const EpisodeCompactor = struct {
         llm_params: LlmParams,
         prompts: PromptTemplates,
         ai_name: []const u8,
+        cli: *Cli,
     ) !EpisodeSummary {
         const prompt = try buildPrompt(
             allocator,
@@ -36,11 +38,16 @@ pub const EpisodeCompactor = struct {
             },
         };
 
-        const response = try provider.chat(allocator, call_msgs, .{
-            .model = "mock-episode",
-            .temperature = llm_params.temperature,
-            .max_tokens = llm_params.max_tokens,
-        });
+        const response = try provider.chat(
+            allocator,
+            call_msgs,
+            .{
+                .model = "mock-episode",
+                .temperature = llm_params.temperature,
+                .max_tokens = llm_params.max_tokens,
+            },
+            cli,
+        );
         defer allocator.free(response);
 
         const extracted = JsonUtils.extractJsonObject(response);

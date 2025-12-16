@@ -3,6 +3,7 @@
 
 const std = @import("std");
 const Types = @import("Types.zig");
+const Cli = @import("Cli.zig").Cli;
 
 pub const ProviderOllama = struct {
     base_url: []u8,
@@ -29,6 +30,7 @@ pub const ProviderOllama = struct {
         allocator: std.mem.Allocator,
         msgs: []const Types.Message,
         params: Types.ChatParams,
+        cli: *Cli,
     ) ![]u8 {
         const url = try std.fmt.allocPrint(
             allocator,
@@ -40,6 +42,8 @@ pub const ProviderOllama = struct {
         const payload =
             try buildRequestJson(allocator, self.model, msgs, params);
         defer allocator.free(payload);
+
+        cli.msg(.dbg, "PAYLOAD:\n{s}", .{payload});
 
         const response = try httpPost(allocator, url, payload);
         defer allocator.free(response);
@@ -157,6 +161,137 @@ pub const ProviderOllama = struct {
         return allocator.dupe(u8, content.string);
     }
 };
+
+pub const OllamaModel = struct {
+    name: []const u8,
+    size: i64,
+    digest: []const u8,
+    modified_at: []const u8,
+};
+
+pub fn httpGet(allocator: std.mem.Allocator, url: []const u8) ![]u8 {
+    var client: std.http.Client = .{ .allocator = allocator };
+    defer client.deinit();
+
+    var response_writer: std.Io.Writer.Allocating = .init(allocator);
+    errdefer response_writer.deinit();
+
+    const result = client.fetch(.{
+        .location = .{ .url = url },
+        .method = .GET,
+        .response_writer = &response_writer.writer,
+    }) catch return error.OllamaHttpError;
+
+    if (result.status != .ok) {
+        return error.OllamaHttpError;
+    }
+
+    var list = response_writer.toArrayList();
+    defer list.deinit(allocator);
+    return allocator.dupe(u8, list.items);
+}
+
+fn trimUrl(s: []const u8) []const u8 {
+    if (s.len == 0) return s;
+    if (s[s.len - 1] == '/') return s[0 .. s.len - 1];
+    return s;
+}
+
+pub fn discoverModels(
+    allocator: std.mem.Allocator,
+    base_url: []const u8,
+) ![]OllamaModel {
+    const url = try std.fmt.allocPrint(
+        allocator,
+        "{s}/api/tags",
+        .{trimUrl(base_url)},
+    );
+    defer allocator.free(url);
+
+    const response = httpGet(allocator, url) catch {
+        return allocator.alloc(OllamaModel, 0);
+    };
+    defer allocator.free(response);
+
+    return parseTagsResponse(allocator, response);
+}
+
+fn parseTagsResponse(
+    allocator: std.mem.Allocator,
+    json: []const u8,
+) ![]OllamaModel {
+    var parsed = std.json.parseFromSlice(
+        std.json.Value,
+        allocator,
+        json,
+        .{},
+    ) catch return allocator.alloc(OllamaModel, 0);
+    defer parsed.deinit();
+
+    const root = parsed.value;
+    if (root != .object) return allocator.alloc(OllamaModel, 0);
+
+    const models_val = root.object.get("models") orelse
+        return allocator.alloc(OllamaModel, 0);
+    if (models_val != .array) return allocator.alloc(OllamaModel, 0);
+
+    var out: std.ArrayList(OllamaModel) = .empty;
+    errdefer {
+        for (out.items) |m| {
+            allocator.free(@constCast(m.name));
+            allocator.free(@constCast(m.digest));
+            allocator.free(@constCast(m.modified_at));
+        }
+        out.deinit(allocator);
+    }
+
+    for (models_val.array.items) |item| {
+        if (item != .object) continue;
+        const obj = item.object;
+
+        const name_v = obj.get("name") orelse continue;
+        if (name_v != .string) continue;
+
+        const size_v = obj.get("size");
+        const size: i64 = if (size_v != null and size_v.? == .integer)
+            size_v.?.integer
+        else
+            0;
+
+        const digest_v = obj.get("digest");
+        const digest = if (digest_v != null and digest_v.? == .string)
+            digest_v.?.string
+        else
+            "";
+
+        const mod_v = obj.get("modified_at");
+        const modified_at = if (mod_v != null and mod_v.? == .string)
+            mod_v.?.string
+        else
+            "";
+
+        try out.append(allocator, .{
+            .name = try allocator.dupe(u8, name_v.string),
+            .size = size,
+            .digest = try allocator.dupe(u8, digest),
+            .modified_at = try allocator.dupe(u8, modified_at),
+        });
+    }
+
+    return out.toOwnedSlice(allocator);
+}
+
+pub fn freeOllamaModels(
+    allocator: std.mem.Allocator,
+    models: []OllamaModel,
+) void {
+    for (models) |m| {
+        allocator.free(@constCast(m.name));
+        allocator.free(@constCast(m.digest));
+        allocator.free(@constCast(m.modified_at));
+    }
+    allocator.free(models);
+}
 
 test "buildRequestJson creates valid JSON" {
     const allocator = std.testing.allocator;

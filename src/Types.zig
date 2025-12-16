@@ -109,6 +109,9 @@ pub const ProviderProfile = struct {
     name: []const u8,
     ollama_url: []const u8,
     model: []const u8,
+    size: i64 = 0,
+    digest: []const u8 = "",
+    modified_at: []const u8 = "",
     created_at_ms: i64 = 0,
 };
 

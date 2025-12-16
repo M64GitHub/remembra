@@ -11,6 +11,7 @@ const MemoryStore = @import("MemoryStoreSqlite.zig");
 const EventKind = MemoryStore.EventKind;
 const ConfigIdentity = @import("ConfigIdentity.zig");
 const IdleThinker = @import("IdleThinker.zig").IdleThinker;
+const ProviderOllama = @import("ProviderOllama.zig");
 
 const PORT: u16 = 8080;
 const READ_BUFFER_SIZE: usize = 16384;
@@ -177,6 +178,14 @@ fn handleRequest(
         startsWith(target, "/api/profiles/providers/"))
     {
         try handleDeleteProvider(allocator, app, request);
+    } else if (method == .POST and
+        std.mem.eql(u8, target, "/api/profiles/providers/update"))
+    {
+        try handleUpdateProvider(allocator, app, request);
+    } else if (method == .GET and
+        startsWith(target, "/api/ollama/models"))
+    {
+        try handleGetOllamaModels(allocator, request);
     } else if (method == .GET and
         std.mem.eql(u8, target, "/api/profiles/personas"))
     {
@@ -348,7 +357,13 @@ fn handleCommand(
 
     // Handle /help specially - return custom help text
     if (std.mem.eql(u8, cmd, "/help")) {
-        _ = app.store.insertEvent(pid, .command_executed, "user", cmd, null) catch {};
+        _ = app.store.insertEvent(
+            pid,
+            .command_executed,
+            "user",
+            cmd,
+            null,
+        ) catch {};
         try respondJson(request, "{\"status\":\"ok\",\"output\":" ++
             "\"Commands:\\n" ++
             "  /help              - Show this help\\n" ++
@@ -363,7 +378,13 @@ fn handleCommand(
 
     // Handle /db stats - return actual stats
     if (std.mem.eql(u8, cmd, "/db stats")) {
-        _ = app.store.insertEvent(pid, .command_executed, "user", cmd, null) catch {};
+        _ = app.store.insertEvent(
+            pid,
+            .command_executed,
+            "user",
+            cmd,
+            null,
+        ) catch {};
         const msg_count = app.store.countMessages(pid) catch 0;
         const mem_count = app.store.countMemories(pid) catch 0;
         const active_count = app.store.countActiveMemories(pid) catch 0;
@@ -390,7 +411,13 @@ fn handleCommand(
             return;
         };
         app.store.advanceTimeHours(hours);
-        _ = app.store.insertEvent(pid, .command_executed, "user", cmd, null) catch {};
+        _ = app.store.insertEvent(
+            pid,
+            .command_executed,
+            "user",
+            cmd,
+            null,
+        ) catch {};
 
         var out_buf: [256]u8 = undefined;
         const output = std.fmt.bufPrint(
@@ -412,11 +439,23 @@ fn handleCommand(
         }
         // Execute the actual command
         _ = Commands.execute(allocator, app, cmd) catch {
-            try respondJson(request, "{\"status\":\"error\",\"output\":\"Failed to store memory.\"}");
+            try respondJson(
+                request,
+                "{\"status\":\"error\",\"output\":\"Failed to store memory.\"}",
+            );
             return;
         };
-        _ = app.store.insertEvent(pid, .command_executed, "user", cmd, null) catch {};
-        try respondJson(request, "{\"status\":\"ok\",\"output\":\"Memory stored.\"}");
+        _ = app.store.insertEvent(
+            pid,
+            .command_executed,
+            "user",
+            cmd,
+            null,
+        ) catch {};
+        try respondJson(
+            request,
+            "{\"status\":\"ok\",\"output\":\"Memory stored.\"}",
+        );
         return;
     }
 
@@ -430,10 +469,19 @@ fn handleCommand(
         };
         // Execute the actual command
         _ = Commands.execute(allocator, app, cmd) catch {
-            try respondJson(request, "{\"status\":\"error\",\"output\":\"Failed to decay memory.\"}");
+            try respondJson(
+                request,
+                "{\"status\":\"error\",\"output\":\"Failed to decay memory.\"}",
+            );
             return;
         };
-        _ = app.store.insertEvent(pid, .command_executed, "user", cmd, null) catch {};
+        _ = app.store.insertEvent(
+            pid,
+            .command_executed,
+            "user",
+            cmd,
+            null,
+        ) catch {};
 
         var out_buf: [256]u8 = undefined;
         const output = std.fmt.bufPrint(
@@ -497,7 +545,10 @@ fn handleCommand(
     }
 
     // Unknown command
-    try respondJson(request, "{\"status\":\"error\",\"output\":\"Unknown command. Type /help\"}");
+    try respondJson(
+        request,
+        "{\"status\":\"error\",\"output\":\"Unknown command. Type /help\"}",
+    );
 }
 
 fn extractUserMessage(
@@ -548,9 +599,12 @@ fn buildOllamaResponse(allocator: std.mem.Allocator, reply: []const u8) ![]u8 {
         }
     }
 
-    return std.fmt.allocPrint(allocator,
+    return std.fmt.allocPrint(
+        allocator,
         \\{{"model":"remembra","message":{{"role":"assistant","content":"{s}"}},"done":true}}
-    , .{escaped.items});
+    ,
+        .{escaped.items},
+    );
 }
 
 fn respondJson(request: *std.http.Server.Request, body: []const u8) !void {
@@ -830,7 +884,12 @@ fn handleGetMessages(
     }
 
     const pid = app.store.getActivePersonaId() orelse 1;
-    const messages = try app.store.loadMessagesPage(allocator, pid, limit + 1, before_id);
+    const messages = try app.store.loadMessagesPage(
+        allocator,
+        pid,
+        limit + 1,
+        before_id,
+    );
     defer {
         for (messages) |m| allocator.free(@constCast(m.content));
         allocator.free(messages);
@@ -1228,12 +1287,17 @@ fn handlePostProvider(
         allocator.free(input.name);
         allocator.free(input.ollama_url);
         allocator.free(input.model);
+        allocator.free(input.digest);
+        allocator.free(input.modified_at);
     }
 
     const id = app.store.createProviderProfile(
         input.name,
         input.ollama_url,
         input.model,
+        input.size,
+        input.digest,
+        input.modified_at,
     ) catch {
         try respondError(request, .internal_server_error, "Failed to create");
         return;
@@ -1272,6 +1336,155 @@ fn handleDeleteProvider(
     };
 
     try respondJson(request, "{\"success\":true}");
+}
+
+fn handleUpdateProvider(
+    allocator: std.mem.Allocator,
+    app: *App,
+    request: *std.http.Server.Request,
+) !void {
+    const content_len = request.head.content_length orelse {
+        try respondError(request, .bad_request, "Missing Content-Length");
+        return;
+    };
+
+    if (content_len > READ_BUFFER_SIZE) {
+        try respondError(request, .payload_too_large, "Request too large");
+        return;
+    }
+
+    var body_buf: [READ_BUFFER_SIZE]u8 = undefined;
+    const body_reader = request.readerExpectNone(&body_buf);
+
+    const body = body_reader.readAlloc(
+        allocator,
+        @intCast(content_len),
+    ) catch {
+        try respondError(request, .bad_request, "Failed to read body");
+        return;
+    };
+    defer allocator.free(body);
+
+    const input = parseProviderUpdateInput(allocator, body) catch {
+        try respondError(request, .bad_request, "Invalid JSON");
+        return;
+    };
+    defer {
+        allocator.free(input.name);
+        allocator.free(input.ollama_url);
+        allocator.free(input.model);
+        allocator.free(input.digest);
+        allocator.free(input.modified_at);
+    }
+
+    app.store.updateProviderProfile(
+        input.id,
+        input.name,
+        input.ollama_url,
+        input.model,
+        input.size,
+        input.digest,
+        input.modified_at,
+    ) catch {
+        try respondError(request, .internal_server_error, "Update failed");
+        return;
+    };
+
+    const active_id = app.store.getActiveProviderId();
+    if (active_id != null and active_id.? == input.id) {
+        app.reloadActiveProvider(allocator) catch |err| {
+            app.cli.msg(.wrn, "Provider reload failed: {}", .{err});
+        };
+    }
+
+    try respondJson(request, "{\"success\":true}");
+}
+
+fn handleGetOllamaModels(
+    allocator: std.mem.Allocator,
+    request: *std.http.Server.Request,
+) !void {
+    const target = request.head.target;
+
+    var url: []const u8 = "http://127.0.0.1:11434";
+    var decoded_url: ?[]u8 = null;
+    defer if (decoded_url) |d| allocator.free(d);
+
+    if (std.mem.indexOf(u8, target, "?")) |q_idx| {
+        const query = target[q_idx + 1 ..];
+        if (parseQueryStr(query, "url")) |u| {
+            decoded_url = urlDecode(allocator, u) catch null;
+            if (decoded_url) |d| url = d;
+        }
+    }
+
+    const models = ProviderOllama.discoverModels(allocator, url) catch {
+        try respondJson(request, "{\"models\":[]}");
+        return;
+    };
+    defer ProviderOllama.freeOllamaModels(allocator, models);
+
+    const json = try buildOllamaModelsJson(allocator, models);
+    defer allocator.free(json);
+
+    try respondJson(request, json);
+}
+
+fn urlDecode(allocator: std.mem.Allocator, input: []const u8) ![]u8 {
+    var out: std.ArrayList(u8) = .empty;
+    errdefer out.deinit(allocator);
+
+    var i: usize = 0;
+    while (i < input.len) {
+        if (input[i] == '%' and i + 2 < input.len) {
+            const hex = input[i + 1 .. i + 3];
+            const byte = std.fmt.parseInt(u8, hex, 16) catch {
+                try out.append(allocator, input[i]);
+                i += 1;
+                continue;
+            };
+            try out.append(allocator, byte);
+            i += 3;
+        } else if (input[i] == '+') {
+            try out.append(allocator, ' ');
+            i += 1;
+        } else {
+            try out.append(allocator, input[i]);
+            i += 1;
+        }
+    }
+
+    return out.toOwnedSlice(allocator);
+}
+
+fn buildOllamaModelsJson(
+    allocator: std.mem.Allocator,
+    models: []const ProviderOllama.OllamaModel,
+) ![]u8 {
+    var out: std.ArrayList(u8) = .empty;
+    errdefer out.deinit(allocator);
+
+    try out.appendSlice(allocator, "{\"models\":[");
+
+    for (models, 0..) |m, i| {
+        if (i > 0) try out.append(allocator, ',');
+
+        const escaped_name = try escapeJsonString(allocator, m.name);
+        defer allocator.free(escaped_name);
+        const escaped_digest = try escapeJsonString(allocator, m.digest);
+        defer allocator.free(escaped_digest);
+        const escaped_mod = try escapeJsonString(allocator, m.modified_at);
+        defer allocator.free(escaped_mod);
+
+        try out.writer(allocator).print(
+            "{{\"name\":\"{s}\",\"size\":{d}," ++
+                "\"digest\":\"{s}\",\"modified_at\":\"{s}\"}}",
+            .{ escaped_name, m.size, escaped_digest, escaped_mod },
+        );
+    }
+
+    try out.appendSlice(allocator, "]}");
+    return out.toOwnedSlice(allocator);
 }
 
 fn handleGetPersonas(
@@ -1345,11 +1558,31 @@ fn handlePostPersona(
 
     // Store default prompts for new persona
     const defaults = ConfigIdentity.PromptTemplates{};
-    app.store.setPersonaPrompt(id, "system_spine", defaults.system_spine) catch {};
-    app.store.setPersonaPrompt(id, "reflector_system", defaults.reflector_system) catch {};
-    app.store.setPersonaPrompt(id, "reflector_no_ops", defaults.reflector_no_ops) catch {};
-    app.store.setPersonaPrompt(id, "idle_thinker", defaults.idle_thinker) catch {};
-    app.store.setPersonaPrompt(id, "episode_compactor", defaults.episode_compactor) catch {};
+    app.store.setPersonaPrompt(
+        id,
+        "system_spine",
+        defaults.system_spine,
+    ) catch {};
+    app.store.setPersonaPrompt(
+        id,
+        "reflector_system",
+        defaults.reflector_system,
+    ) catch {};
+    app.store.setPersonaPrompt(
+        id,
+        "reflector_no_ops",
+        defaults.reflector_no_ops,
+    ) catch {};
+    app.store.setPersonaPrompt(
+        id,
+        "idle_thinker",
+        defaults.idle_thinker,
+    ) catch {};
+    app.store.setPersonaPrompt(
+        id,
+        "episode_compactor",
+        defaults.episode_compactor,
+    ) catch {};
 
     var buf: [64]u8 = undefined;
     const resp = std.fmt.bufPrint(&buf, "{{\"id\":{d}}}", .{id}) catch
@@ -1565,7 +1798,10 @@ fn handleGetPrompts(
         return;
     }
 
-    var custom_prompts = try app.store.getPersonaPrompts(allocator, persona_id.?);
+    var custom_prompts = try app.store.getPersonaPrompts(
+        allocator,
+        persona_id.?,
+    );
     defer {
         var iter = custom_prompts.iterator();
         while (iter.next()) |entry| {
@@ -1782,6 +2018,9 @@ const ProviderInput = struct {
     name: []u8,
     ollama_url: []u8,
     model: []u8,
+    size: i64,
+    digest: []u8,
+    modified_at: []u8,
 };
 
 fn parseProviderInput(
@@ -1807,10 +2046,96 @@ fn parseProviderInput(
     if (url_v != .string) return error.InvalidUrl;
     if (model_v != .string) return error.InvalidModel;
 
+    const size_v = root.get("size");
+    const size: i64 = if (size_v != null and size_v.? == .integer)
+        size_v.?.integer
+    else
+        0;
+
+    const digest_v = root.get("digest");
+    const digest = if (digest_v != null and digest_v.? == .string)
+        digest_v.?.string
+    else
+        "";
+
+    const mod_v = root.get("modified_at");
+    const modified_at = if (mod_v != null and mod_v.? == .string)
+        mod_v.?.string
+    else
+        "";
+
     return .{
         .name = try allocator.dupe(u8, name_v.string),
         .ollama_url = try allocator.dupe(u8, url_v.string),
         .model = try allocator.dupe(u8, model_v.string),
+        .size = size,
+        .digest = try allocator.dupe(u8, digest),
+        .modified_at = try allocator.dupe(u8, modified_at),
+    };
+}
+
+const ProviderUpdateInput = struct {
+    id: i64,
+    name: []u8,
+    ollama_url: []u8,
+    model: []u8,
+    size: i64,
+    digest: []u8,
+    modified_at: []u8,
+};
+
+fn parseProviderUpdateInput(
+    allocator: std.mem.Allocator,
+    body: []const u8,
+) !ProviderUpdateInput {
+    var parsed = try std.json.parseFromSlice(
+        std.json.Value,
+        allocator,
+        body,
+        .{},
+    );
+    defer parsed.deinit();
+
+    if (parsed.value != .object) return error.InvalidJson;
+    const root = parsed.value.object;
+
+    const id_v = root.get("id") orelse return error.MissingId;
+    if (id_v != .integer) return error.InvalidId;
+
+    const name_v = root.get("name") orelse return error.MissingName;
+    const url_v = root.get("ollama_url") orelse return error.MissingUrl;
+    const model_v = root.get("model") orelse return error.MissingModel;
+
+    if (name_v != .string) return error.InvalidName;
+    if (url_v != .string) return error.InvalidUrl;
+    if (model_v != .string) return error.InvalidModel;
+
+    const size_v = root.get("size");
+    const size: i64 = if (size_v != null and size_v.? == .integer)
+        size_v.?.integer
+    else
+        0;
+
+    const digest_v = root.get("digest");
+    const digest = if (digest_v != null and digest_v.? == .string)
+        digest_v.?.string
+    else
+        "";
+
+    const mod_v = root.get("modified_at");
+    const modified_at = if (mod_v != null and mod_v.? == .string)
+        mod_v.?.string
+    else
+        "";
+
+    return .{
+        .id = id_v.integer,
+        .name = try allocator.dupe(u8, name_v.string),
+        .ollama_url = try allocator.dupe(u8, url_v.string),
+        .model = try allocator.dupe(u8, model_v.string),
+        .size = size,
+        .digest = try allocator.dupe(u8, digest),
+        .modified_at = try allocator.dupe(u8, modified_at),
     };
 }
 
@@ -1967,8 +2292,18 @@ fn buildProvidersJson(
 
         try out.writer(allocator).print(
             "{{\"id\":{d},\"name\":\"{s}\",\"ollama_url\":\"{s}\"," ++
-                "\"model\":\"{s}\",\"created_at_ms\":{d}}}",
-            .{ p.id, p.name, p.ollama_url, p.model, p.created_at_ms },
+                "\"model\":\"{s}\",\"size\":{d},\"digest\":\"{s}\"," ++
+                "\"modified_at\":\"{s}\",\"created_at_ms\":{d}}}",
+            .{
+                p.id,
+                p.name,
+                p.ollama_url,
+                p.model,
+                p.size,
+                p.digest,
+                p.modified_at,
+                p.created_at_ms,
+            },
         );
     }
 
@@ -2069,7 +2404,10 @@ fn handleStaticFile(
         return;
     };
 
-    const file_path = std.fs.path.join(allocator, &.{ WEB_ROOT, clean_path }) catch {
+    const file_path = std.fs.path.join(
+        allocator,
+        &.{ WEB_ROOT, clean_path },
+    ) catch {
         try serveIndexHtml(allocator, request);
         return;
     };

@@ -61,11 +61,16 @@ pub const Reflector = struct {
             },
         };
 
-        const response = try provider.chat(allocator, msgs, .{
-            .model = "mock-reflection",
-            .temperature = llm_params.temperature,
-            .max_tokens = llm_params.max_tokens,
-        });
+        const response = try provider.chat(
+            allocator,
+            msgs,
+            .{
+                .model = "mock-reflection",
+                .temperature = llm_params.temperature,
+                .max_tokens = llm_params.max_tokens,
+            },
+            cli,
+        );
         defer allocator.free(response);
 
         cli.msg(.dbg, "[Reflector] LLM response: {s}", .{response});
@@ -73,7 +78,17 @@ pub const Reflector = struct {
         const extracted = JsonUtils.extractJsonObject(response);
         cli.msg(.dbg, "[Reflector] Extracted JSON: {s}", .{extracted});
 
-        const proposals = parseProposals(allocator, extracted) catch {
+        // Strip trailing commas (LLMs often produce invalid JSON)
+        const cleaned = JsonUtils.stripTrailingCommas(
+            allocator,
+            extracted,
+        ) catch {
+            cli.msg(.wrn, "[Reflector] Failed to clean JSON", .{});
+            return allocator.alloc(ReflectionProposal, 0);
+        };
+        defer allocator.free(cleaned);
+
+        const proposals = parseProposals(allocator, cleaned) catch {
             cli.msg(.wrn, "[Reflector] Failed to parse JSON", .{});
             return allocator.alloc(ReflectionProposal, 0);
         };
