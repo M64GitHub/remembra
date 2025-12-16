@@ -166,7 +166,7 @@ onUnmounted(() => {
         @click.stop="copyContent"
         :title="copied ? 'Copied!' : 'Copy'"
       >
-        {{ copied ? '&#x2713;' : '&#x2398;' }}
+        {{ copied ? '&#x2713;' : '&#x29C9;' }}
       </button>
     </div>
   </div>
