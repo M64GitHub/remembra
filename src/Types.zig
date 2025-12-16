@@ -99,6 +99,13 @@ pub const ChatParams = struct {
     stream: bool = false,
 };
 
+pub const ChatResponse = struct {
+    content: []const u8,
+    prompt_tokens: ?u32 = null,
+    completion_tokens: ?u32 = null,
+    eval_duration_ns: ?i64 = null,
+};
+
 pub const LlmParams = struct {
     temperature: f32,
     max_tokens: u32,

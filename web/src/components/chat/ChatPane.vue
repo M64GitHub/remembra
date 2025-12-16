@@ -120,6 +120,9 @@ async function sendMessage(text) {
       role: 'assistant',
       content: data.message.content,
       created_at_ms: Date.now(),
+      prompt_tokens: data.prompt_tokens,
+      completion_tokens: data.completion_tokens,
+      eval_duration_ms: data.eval_duration_ms,
     })
   } catch (e) {
     error.value = e.message

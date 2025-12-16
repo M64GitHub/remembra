@@ -31,7 +31,7 @@ pub const ProviderOllama = struct {
         msgs: []const Types.Message,
         params: Types.ChatParams,
         cli: *Cli,
-    ) ![]u8 {
+    ) !Types.ChatResponse {
         const url = try std.fmt.allocPrint(
             allocator,
             "{s}/api/chat",
@@ -47,6 +47,7 @@ pub const ProviderOllama = struct {
 
         const response = try httpPost(allocator, url, payload);
         defer allocator.free(response);
+        cli.msg(.dbg, "RESPONSE:\n{s}", .{response});
 
         return parseResponse(allocator, response);
     }
@@ -138,7 +139,10 @@ pub const ProviderOllama = struct {
         }
     }
 
-    fn parseResponse(allocator: std.mem.Allocator, json: []const u8) ![]u8 {
+    fn parseResponse(
+        allocator: std.mem.Allocator,
+        json: []const u8,
+    ) !Types.ChatResponse {
         var parsed = std.json.parseFromSlice(
             std.json.Value,
             allocator,
@@ -158,7 +162,36 @@ pub const ProviderOllama = struct {
             return error.OllamaInvalidJson;
         if (content != .string) return error.OllamaInvalidJson;
 
-        return allocator.dupe(u8, content.string);
+        const prompt_tokens = extractOptionalInt(root.object, "prompt_eval_count");
+        const completion_tokens = extractOptionalInt(root.object, "eval_count");
+        const eval_duration = extractOptionalInt64(root.object, "eval_duration");
+
+        return .{
+            .content = try allocator.dupe(u8, content.string),
+            .prompt_tokens = prompt_tokens,
+            .completion_tokens = completion_tokens,
+            .eval_duration_ns = eval_duration,
+        };
+    }
+
+    fn extractOptionalInt(
+        obj: std.json.ObjectMap,
+        key: []const u8,
+    ) ?u32 {
+        const val = obj.get(key) orelse return null;
+        if (val != .integer) return null;
+        if (val.integer < 0 or val.integer > std.math.maxInt(u32))
+            return null;
+        return @intCast(val.integer);
+    }
+
+    fn extractOptionalInt64(
+        obj: std.json.ObjectMap,
+        key: []const u8,
+    ) ?i64 {
+        const val = obj.get(key) orelse return null;
+        if (val != .integer) return null;
+        return val.integer;
     }
 };
 
@@ -315,15 +348,35 @@ test "buildRequestJson creates valid JSON" {
     try std.testing.expect(std.mem.indexOf(u8, json, "\"role\":\"user\"") != null);
 }
 
-test "parseResponse extracts content" {
+test "parseResponse extracts content and metadata" {
     const allocator = std.testing.allocator;
 
     const sample =
-        \\{"model":"llama3.2","message":{"role":"assistant","content":"Hello!"}}
+        \\{"model":"llama3.2","message":{"role":"assistant","content":"Hello!"},
+        \\"prompt_eval_count":26,"eval_count":8,"eval_duration":161064248}
     ;
 
-    const content = try ProviderOllama.parseResponse(allocator, sample);
-    defer allocator.free(content);
+    const resp = try ProviderOllama.parseResponse(allocator, sample);
+    defer allocator.free(resp.content);
 
-    try std.testing.expectEqualStrings("Hello!", content);
+    try std.testing.expectEqualStrings("Hello!", resp.content);
+    try std.testing.expectEqual(@as(?u32, 26), resp.prompt_tokens);
+    try std.testing.expectEqual(@as(?u32, 8), resp.completion_tokens);
+    try std.testing.expectEqual(@as(?i64, 161064248), resp.eval_duration_ns);
+}
+
+test "parseResponse handles missing metadata" {
+    const allocator = std.testing.allocator;
+
+    const sample =
+        \\{"model":"llama3.2","message":{"role":"assistant","content":"Hi"}}
+    ;
+
+    const resp = try ProviderOllama.parseResponse(allocator, sample);
+    defer allocator.free(resp.content);
+
+    try std.testing.expectEqualStrings("Hi", resp.content);
+    try std.testing.expectEqual(@as(?u32, null), resp.prompt_tokens);
+    try std.testing.expectEqual(@as(?u32, null), resp.completion_tokens);
+    try std.testing.expectEqual(@as(?i64, null), resp.eval_duration_ns);
 }

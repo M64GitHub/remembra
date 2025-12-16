@@ -277,7 +277,7 @@ fn handleChat(
 
     app.cli.msg(.inf, "User: {s}", .{user_msg});
 
-    const reply = ChatEngine.processAndReturn(
+    const chat_resp = ChatEngine.processAndReturn(
         allocator,
         app,
         user_msg,
@@ -290,10 +290,12 @@ fn handleChat(
         );
         return;
     };
-    defer allocator.free(reply);
+    defer allocator.free(chat_resp.content);
 
-    const response = try buildOllamaResponse(allocator, reply);
+    const response = try buildOllamaResponse(allocator, chat_resp);
     defer allocator.free(response);
+
+    app.cli.msg(.dbg, "REPLY:\n{s}\n", .{chat_resp.content});
 
     try respondJson(request, response);
 }
@@ -584,11 +586,14 @@ fn extractUserMessage(
     return allocator.dupe(u8, content_val.string);
 }
 
-fn buildOllamaResponse(allocator: std.mem.Allocator, reply: []const u8) ![]u8 {
+fn buildOllamaResponse(
+    allocator: std.mem.Allocator,
+    resp: Types.ChatResponse,
+) ![]u8 {
     var escaped: std.ArrayList(u8) = .empty;
     defer escaped.deinit(allocator);
 
-    for (reply) |c| {
+    for (resp.content) |c| {
         switch (c) {
             '"' => try escaped.appendSlice(allocator, "\\\""),
             '\\' => try escaped.appendSlice(allocator, "\\\\"),
@@ -599,12 +604,31 @@ fn buildOllamaResponse(allocator: std.mem.Allocator, reply: []const u8) ![]u8 {
         }
     }
 
-    return std.fmt.allocPrint(
+    var out: std.ArrayListUnmanaged(u8) = .empty;
+    errdefer out.deinit(allocator);
+
+    try out.appendSlice(
         allocator,
-        \\{{"model":"remembra","message":{{"role":"assistant","content":"{s}"}},"done":true}}
-    ,
-        .{escaped.items},
+        "{\"model\":\"remembra\",\"message\":{\"role\":\"assistant\"," ++
+            "\"content\":\"",
     );
+    try out.appendSlice(allocator, escaped.items);
+    try out.appendSlice(allocator, "\"},\"done\":true");
+
+    if (resp.prompt_tokens) |pt| {
+        try out.writer(allocator).print(",\"prompt_tokens\":{d}", .{pt});
+    }
+    if (resp.completion_tokens) |ct| {
+        try out.writer(allocator).print(",\"completion_tokens\":{d}", .{ct});
+    }
+    if (resp.eval_duration_ns) |ns| {
+        const ms = @divFloor(ns, 1_000_000);
+        try out.writer(allocator).print(",\"eval_duration_ms\":{d}", .{ms});
+    }
+
+    try out.append(allocator, '}');
+
+    return out.toOwnedSlice(allocator);
 }
 
 fn respondJson(request: *std.http.Server.Request, body: []const u8) !void {

@@ -32,6 +32,28 @@ const renderedContent = computed(() => {
   return null
 })
 
+const formattedStats = computed(() => {
+  const pt = props.message.prompt_tokens
+  const ct = props.message.completion_tokens
+  const ms = props.message.eval_duration_ms
+
+  if (!pt && !ct && !ms) return null
+
+  const parts = []
+  if (pt != null && ct != null) {
+    parts.push(`${pt} in / ${ct} out`)
+  } else if (ct != null) {
+    parts.push(`${ct} tokens`)
+  }
+
+  if (ms != null) {
+    const secs = (ms / 1000).toFixed(1)
+    parts.push(`${secs}s`)
+  }
+
+  return parts.join(' | ')
+})
+
 const formattedTime = computed(() => {
   // Try multiple possible field names
   const raw = props.message.created_at_ms
@@ -161,6 +183,9 @@ onUnmounted(() => {
 
     <div class="message-footer" :class="{ visible: showTimestamp }">
       <span class="message-time">{{ formattedTime }}</span>
+      <span v-if="isAssistant && formattedStats" class="message-stats">
+        {{ formattedStats }}
+      </span>
       <button
         class="copy-btn"
         @click.stop="copyContent"
@@ -294,6 +319,15 @@ onUnmounted(() => {
 
 .user .message-time {
   color: rgba(255, 255, 255, 0.6);
+}
+
+.message-stats {
+  font-size: var(--text-xs);
+  font-family: var(--font-mono);
+  color: var(--text-dim);
+  padding: 0 var(--space-sm);
+  border-left: 1px solid rgba(255, 255, 255, 0.1);
+  border-right: 1px solid rgba(255, 255, 255, 0.1);
 }
 
 .copy-btn {

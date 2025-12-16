@@ -38,7 +38,7 @@ pub const EpisodeCompactor = struct {
             },
         };
 
-        const response = try provider.chat(
+        const resp = try provider.chat(
             allocator,
             call_msgs,
             .{
@@ -48,13 +48,13 @@ pub const EpisodeCompactor = struct {
             },
             cli,
         );
-        defer allocator.free(response);
+        defer allocator.free(resp.content);
 
-        const extracted = JsonUtils.extractJsonObject(response);
+        const extracted = JsonUtils.extractJsonObject(resp.content);
         return parseEpisodeJson(allocator, extracted) catch {
             return .{
                 .title = try allocator.dupe(u8, "Episode"),
-                .summary = try allocator.dupe(u8, response),
+                .summary = try allocator.dupe(u8, resp.content),
             };
         };
     }

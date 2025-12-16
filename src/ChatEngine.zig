@@ -47,16 +47,16 @@ pub fn processTurn(
     app: *App,
     user_input: []const u8,
 ) !void {
-    const reply = try processAndReturn(allocator, app, user_input);
-    defer allocator.free(reply);
-    app.cli.msg(.rok, "{s}", .{reply});
+    const resp = try processAndReturn(allocator, app, user_input);
+    defer allocator.free(resp.content);
+    app.cli.msg(.rok, "{s}", .{resp.content});
 }
 
 pub fn processAndReturn(
     allocator: std.mem.Allocator,
     app: *App,
     user_input: []const u8,
-) ![]u8 {
+) !Types.ChatResponse {
     const pid = app.store.getActivePersonaId() orelse 1;
 
     const allow_ops = checkSecurity(app, pid, user_input);
@@ -66,12 +66,12 @@ pub fn processAndReturn(
     var ctx = try gatherContext(allocator, app, pid);
     defer ctx.deinit(allocator);
 
-    const reply = try generateReply(allocator, app, pid, &ctx, user_input);
-    errdefer allocator.free(reply);
+    const resp = try generateReply(allocator, app, pid, &ctx, user_input);
+    errdefer allocator.free(resp.content);
 
-    try runReflection(allocator, app, pid, &ctx, reply, allow_ops);
+    try runReflection(allocator, app, pid, &ctx, resp.content, allow_ops);
 
-    return reply;
+    return resp;
 }
 
 fn checkSecurity(app: *App, pid: i64, input: []const u8) bool {
@@ -204,7 +204,7 @@ fn generateReply(
     pid: i64,
     ctx: *const TurnContext,
     user_input: []const u8,
-) ![]u8 {
+) !Types.ChatResponse {
     try app.store.insertMessage(allocator, pid, .user, user_input);
 
     app.cli.msg(.dbg, "injecting {d} memory items", .{ctx.memory.len});
@@ -250,18 +250,24 @@ fn generateReply(
         });
     }
 
-    const reply = try app.provider.chat(allocator, model_msgs, .{
+    const resp = try app.provider.chat(allocator, model_msgs, .{
         .model = app.conn.ollama_model,
         .temperature = app.ident.llm_chat.temperature,
         .max_tokens = app.ident.llm_chat.max_tokens,
     }, app.cli);
-    errdefer allocator.free(reply);
+    errdefer allocator.free(resp.content);
 
-    try app.store.insertMessage(allocator, pid, .assistant, reply);
+    try app.store.insertMessage(allocator, pid, .assistant, resp.content);
 
-    app.events.emitFmt(pid, .chat_completed, "chat", "len={d}", .{reply.len});
+    app.events.emitFmt(
+        pid,
+        .chat_completed,
+        "chat",
+        "len={d}",
+        .{resp.content.len},
+    );
 
-    return reply;
+    return resp;
 }
 
 fn runReflection(

@@ -173,7 +173,7 @@ pub const IdleThinker = struct {
             },
         };
 
-        const response = try provider.chat(
+        const resp = try provider.chat(
             allocator,
             msgs,
             .{
@@ -183,11 +183,11 @@ pub const IdleThinker = struct {
             },
             cli,
         );
-        defer allocator.free(response);
+        defer allocator.free(resp.content);
 
-        const extracted = JsonUtils.extractJsonObject(response);
+        const extracted = JsonUtils.extractJsonObject(resp.content);
         return parseThoughtJson(allocator, extracted) catch {
-            return allocator.dupe(u8, response);
+            return allocator.dupe(u8, resp.content);
         };
     }
 

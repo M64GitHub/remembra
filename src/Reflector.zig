@@ -61,7 +61,7 @@ pub const Reflector = struct {
             },
         };
 
-        const response = try provider.chat(
+        const resp = try provider.chat(
             allocator,
             msgs,
             .{
@@ -71,11 +71,11 @@ pub const Reflector = struct {
             },
             cli,
         );
-        defer allocator.free(response);
+        defer allocator.free(resp.content);
 
-        cli.msg(.dbg, "[Reflector] LLM response: {s}", .{response});
+        cli.msg(.dbg, "[Reflector] LLM response: {s}", .{resp.content});
 
-        const extracted = JsonUtils.extractJsonObject(response);
+        const extracted = JsonUtils.extractJsonObject(resp.content);
         cli.msg(.dbg, "[Reflector] Extracted JSON: {s}", .{extracted});
 
         // Strip trailing commas (LLMs often produce invalid JSON)
