@@ -1,29 +1,21 @@
 # REMEMBRA Overview
 
 REMEMBRA is an experimental **remembering AI architecture**.  It explores what happens
-when an artificial agent is allowed to experience time, reflect internally, and
+when an artificial agent is allowed to experience time, "reflect" internally, and
 decide what should remain.
 
 REMEMBRA treats the language model as **stateless reasoning**. The model generates
-text, but all continuity - memory, time awareness, reflection, forgetting - is
+text, but all continuity - memory, time "awareness", (simulated) reflection, "forgetting" - is
 implemented *around* the model, not inside it.
-
----
 
 ## Why REMEMBRA Exists
 
 Most AI systems exist only in the present. They respond, comply, and adapt - but
-they do not persist. When a session ends, so does their identity. When silence
+they do not persist. When a session ends, so does their "identity". When silence
 occurs, nothing happens at all.
 
 REMEMBRA asks a different question: What changes when an artificial agent is
-allowed to have a *past* that survives time, reflection, and absence?
-
-This allows the system to present a seamless, limitless conversation history - 
-from the most recent message to the very first, no matter how long (visual indicators 
-distinct messages in the AI's context window from pure history messages).
-
----
+allowed to have a *past* that survives time, (simulated) reflection, and absence?
 
 ## Core Philosophy
 
@@ -42,8 +34,6 @@ REMEMBRA is built on a few strict principles:
 
 The model may suggest. The system decides.
 
----
-
 ## Key Features
 
 - **Ollama-compatible proxy**: Works with any Ollama UI, adding memory to
@@ -56,8 +46,6 @@ The model may suggest. The system decides.
 - **Episode compaction**: Long conversations are summarized automatically
 - **Multiple personas**: Customizable identities with different parameters
 - **Full observability**: Event log shows all system decisions in real-time
-
----
 
 ## Architecture Overview
 
@@ -121,8 +109,6 @@ REMEMBRA's HTTP server exposes an Ollama-compatible chat endpoint. This means:
 - All memory, reflection, and governance features are applied automatically
 - Users can switch LLM models mid-conversation
 - Existing Ollama setups gain memory functionality without changes to their UI
-
----
 
 ## How a Conversation Turn Works
 
@@ -191,8 +177,6 @@ Response shown to user
 Every turn is a complete cycle: gather context, generate response, reflect on
 what was learned, and govern what gets remembered.
 
----
-
 ## The Memory System
 
 Memory in REMEMBRA is structured, not raw. Each memory is stored as an
@@ -250,8 +234,6 @@ relevant memories using a weighted scoring algorithm:
 The system retrieves up to 12 memories per turn, with limits to prevent any
 single topic from dominating the context.
 
----
-
 ## The Governor
 
 The Governor is the gatekeeper of memory. No memory change happens without its
@@ -289,8 +271,6 @@ Reflector proposes:
 
 Every decision - approved or blocked - is logged in the event system. This
 creates an audit trail of all memory governance decisions.
-
----
 
 ## Reflection
 
@@ -338,8 +318,6 @@ This prevents attackers from manipulating the AI into storing malicious content
 in memory. The conversation continues, but the system protects its memory from
 corruption.
 
----
-
 ## The Idle Thinker
 
 When you're not talking to REMEMBRA, it doesn't just wait. It thinks.
@@ -379,8 +357,6 @@ Idle thoughts are stored with lower confidence (0.55) because they're
 speculative. Episode summaries get higher confidence (0.85) because they
 represent factual records of what happened.
 
----
-
 ## Episodes
 
 Long conversations don't accumulate forever. REMEMBRA compacts them into
@@ -407,8 +383,6 @@ After compaction:
 Episodes prevent context bloat while maintaining a navigable history. The AI
 can reference past episodes when relevant, giving continuity across sessions.
 
----
-
 ## Time Awareness
 
 REMEMBRA tracks time between interactions. It knows whether your last message
@@ -430,8 +404,6 @@ RE-ENTRY CONTEXT
 
 Time is treated as context, not sentiment. The AI doesn't dramatize or
 over-acknowledge gaps - it simply knows they happened.
-
----
 
 ## Identity and Personas
 
@@ -485,6 +457,27 @@ REMEMBRA includes 10 identity presets that can be applied as starting points:
 | Observer       | Calm, attentive, minimal expression, values presence    |
 
 Presets provide starting points; you can customize any aspect of a persona.
+
+## The Event System
+
+Every significant action in REMEMBRA is logged as an event, creating a complete
+audit trail of the system's behavior.
+
+Event types include:
+
+| Event                | When It Fires                                    |
+|----------------------|--------------------------------------------------|
+| `memory_proposed`    | Reflector suggests a memory change               |
+| `memory_stored`      | Governor approves and stores a memory            |
+| `governor_blocked`   | Governor rejects a proposal                      |
+| `thought_generated`  | Idle Thinker creates an internal reflection      |
+| `episode_compacted`  | Episode Compactor summarizes a conversation      |
+| `security_warning`   | Injection guard detects suspicious input         |
+| `context_built`      | System assembles prompt for LLM call             |
+
+Events are visible in the web interface's Event Terminal, allowing you to watch
+the system's decision-making in real time. This transparency is intentional -
+you should be able to understand why REMEMBRA remembers what it remembers.
 
 ---
 
@@ -563,50 +556,6 @@ On first launch, REMEMBRA will:
 
 The database persists between runs, maintaining all conversations, memories,
 and personas.
-
----
-
-## Memory vs. Context
-
-REMEMBRA uses both context (recent conversation) and memory (persistent
-knowledge). Unlike simply extending a context window, memories are structured,
-scored by confidence, decay over time, and are protected by governance. Context
-shows what was said recently; memory tracks what still matters.
-
----
-
-## The Event System
-
-Every significant action in REMEMBRA is logged as an event, creating a complete
-audit trail of the system's behavior.
-
-Event types include:
-
-| Event                | When It Fires                                    |
-|----------------------|--------------------------------------------------|
-| `memory_proposed`    | Reflector suggests a memory change               |
-| `memory_stored`      | Governor approves and stores a memory            |
-| `governor_blocked`   | Governor rejects a proposal                      |
-| `thought_generated`  | Idle Thinker creates an internal reflection      |
-| `episode_compacted`  | Episode Compactor summarizes a conversation      |
-| `security_warning`   | Injection guard detects suspicious input         |
-| `context_built`      | System assembles prompt for LLM call             |
-
-Events are visible in the web interface's Event Terminal, allowing you to watch
-the system's decision-making in real time. This transparency is intentional -
-you should be able to understand why REMEMBRA remembers what it remembers.
-
----
-
-## What REMEMBRA Is Not
-
-- **Not an attempt at consciousness** - REMEMBRA doesn't claim sentience
-- **Not a personality simulator** - It maintains structure, not theater
-- **Not a self-modifying agent** - All changes go through governance
-- **Not a RAG system** - Memory is structured and governed, not vector-searched
-
-REMEMBRA explores **persistence under constraint**. What must be true for an
-artificial agent to stop being infinitely rewriteable?
 
 ---
 
