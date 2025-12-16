@@ -113,6 +113,10 @@ export const prompts = {
     post('/api/prompts', { persona_id: personaId, name, content }),
 };
 
+export const identityPresets = {
+  list: () => get('/api/identity-presets'),
+};
+
 export const health = {
   check: () => get('/health'),
 };

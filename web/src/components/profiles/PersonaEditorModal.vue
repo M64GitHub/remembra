@@ -1,6 +1,6 @@
 <script setup>
 import { ref, watch, computed } from 'vue'
-import { prompts as promptsApi } from '../../api/client.js'
+import { prompts as promptsApi, identityPresets as presetsApi } from '../../api/client.js'
 
 const props = defineProps({
   persona: {
@@ -30,6 +30,10 @@ const promptTemplates = ref({
 const promptsLoading = ref(false)
 const promptsError = ref(null)
 
+const presets = ref([])
+const selectedPreset = ref(null)
+const presetsLoading = ref(false)
+
 const defaults = {
   llm_chat: { temperature: 0.7, max_tokens: 256 },
   llm_reflection: { temperature: 0.2, max_tokens: 512 },
@@ -46,6 +50,7 @@ const form = ref({
   name: '',
   ai_name: '',
   tone: '',
+  persona_kernel: '',
   llm_chat_temp: 0.7,
   llm_chat_tokens: 256,
   llm_reflection_temp: 0.2,
@@ -68,6 +73,7 @@ watch(() => props.persona, async (p) => {
       name: p.name || '',
       ai_name: p.ai_name || '',
       tone: p.tone || '',
+      persona_kernel: p.persona_kernel || '',
       llm_chat_temp: p.llm_chat_temp,
       llm_chat_tokens: p.llm_chat_tokens,
       llm_reflection_temp: p.llm_reflect_temp,
@@ -88,6 +94,8 @@ watch(() => props.persona, async (p) => {
       // Create mode - fetch defaults from API
       await loadDefaultPrompts()
     }
+
+    await loadPresets()
   }
 }, { immediate: true })
 
@@ -135,6 +143,27 @@ async function loadDefaultPrompts() {
   }
 }
 
+async function loadPresets() {
+  presetsLoading.value = true
+  try {
+    const data = await presetsApi.list()
+    presets.value = data.presets || []
+  } catch (e) {
+    console.error('[Presets] Load error:', e)
+  } finally {
+    presetsLoading.value = false
+  }
+}
+
+function applyPreset() {
+  if (!selectedPreset.value) return
+  const preset = presets.value.find(p => p.id === selectedPreset.value)
+  if (preset) {
+    form.value.persona_kernel = preset.text
+    selectedPreset.value = null
+  }
+}
+
 async function handleSave() {
   if (!form.value.name.trim()) {
     alert('Persona name is required')
@@ -146,6 +175,7 @@ async function handleSave() {
     name: form.value.name,
     ai_name: form.value.ai_name,
     tone: form.value.tone,
+    persona_kernel: form.value.persona_kernel || '',
     llm_chat_temp: form.value.llm_chat_temp,
     llm_chat_tokens: form.value.llm_chat_tokens,
     llm_reflect_temp: form.value.llm_reflection_temp,
@@ -213,6 +243,11 @@ function formatPercent(val) {
         >Basic</button>
         <button
           class="nav-btn"
+          :class="{ active: activeSection === 'identity' }"
+          @click="activeSection = 'identity'"
+        >Identity</button>
+        <button
+          class="nav-btn"
           :class="{ active: activeSection === 'llm' }"
           @click="activeSection = 'llm'"
         >LLM</button>
@@ -245,6 +280,43 @@ function formatPercent(val) {
               v-model="form.tone"
               placeholder="e.g. helpful, concise, grounded"
             />
+          </div>
+        </div>
+
+        <div v-show="activeSection === 'identity'" class="section">
+          <p class="section-desc">
+            Define the AI's core personality traits and values.
+            This text is prepended with the AI name in the system prompt.
+          </p>
+
+          <div class="preset-row">
+            <select v-model="selectedPreset" class="preset-select">
+              <option :value="null">Load preset...</option>
+              <option
+                v-for="p in presets"
+                :key="p.id"
+                :value="p.id"
+              >
+                {{ p.name }}
+              </option>
+            </select>
+            <button
+              @click="applyPreset"
+              :disabled="!selectedPreset"
+              class="preset-apply-btn"
+            >
+              Apply
+            </button>
+          </div>
+
+          <div class="form-group">
+            <label>Persona Kernel</label>
+            <textarea
+              v-model="form.persona_kernel"
+              rows="10"
+              placeholder=" is a thoughtful, observant conversational presence..."
+              class="kernel-textarea"
+            ></textarea>
           </div>
         </div>
 
@@ -778,5 +850,62 @@ function formatPercent(val) {
 .prompt-group textarea::placeholder {
   color: var(--text-dim);
   font-style: italic;
+}
+
+.kernel-textarea {
+  width: 100%;
+  padding: var(--space-sm);
+  background: var(--bg-secondary);
+  border: var(--border-subtle);
+  border-radius: var(--border-radius);
+  color: var(--text-primary);
+  font-size: var(--text-sm);
+  font-family: var(--font-mono);
+  resize: vertical;
+  min-height: 200px;
+}
+
+.kernel-textarea:focus {
+  outline: none;
+  border-color: var(--accent-primary);
+}
+
+.kernel-textarea::placeholder {
+  color: var(--text-dim);
+  font-style: italic;
+}
+
+.preset-row {
+  display: flex;
+  gap: var(--space-sm);
+  margin-bottom: var(--space-md);
+}
+
+.preset-select {
+  flex: 1;
+  padding: var(--space-sm);
+  background: var(--bg-secondary);
+  border: var(--border-subtle);
+  border-radius: var(--border-radius);
+  color: var(--text-primary);
+  font-size: var(--text-sm);
+}
+
+.preset-apply-btn {
+  padding: var(--space-sm) var(--space-md);
+  background: var(--accent-primary);
+  border-radius: var(--border-radius);
+  color: white;
+  font-size: var(--text-sm);
+  transition: all var(--transition-fast);
+}
+
+.preset-apply-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.preset-apply-btn:not(:disabled):hover {
+  background: var(--accent-secondary);
 }
 </style>

@@ -219,6 +219,7 @@ fn generateReply(
         ctx.last_episode,
         ctx.last_thought,
         app.ident.name,
+        app.ident.persona_kernel,
         app.ident.prompts,
     );
     defer {
