@@ -8,7 +8,7 @@ REMEMBRA treats the language model as **stateless reasoning**. The model generat
 text, but all continuity - memory, time "awareness", (simulated) reflection, "forgetting" - is
 implemented *around* the model, not inside it.
 
-## Why REMEMBRA Exists
+## Purpose
 
 Most AI systems exist only in the present. They respond, comply, and adapt - but
 they do not persist. When a session ends, so does their "identity". When silence
