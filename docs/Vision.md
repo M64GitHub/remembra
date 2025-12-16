@@ -217,15 +217,6 @@ Identity emerges from structure, not accumulation.
 
 REMEMBRA explores **persistence under constraint**.
 
-## Status
-
-REMEMBRA currently exists as:
-- a mock-first, adapter-agnostic architecture
-- fully testable without HTTP or databases
-- designed to plug into real transport and storage layers later
-
-It is intentionally small, explicit, and inspectable.
-
 ## Philosophy
 
 REMEMBRA is not about making AI feel alive.
@@ -240,50 +231,9 @@ when memory resists persuasion,
 identity stops being a performance  
 and becomes a responsibility.
 
-## Appendix: Why not long context?
-
-A common response to the problem of AI memory is:  
-“Just give the model a bigger context window.”
-
-REMEMBRA deliberately does not take this approach.  
-
-A long context window increases *recall*, but it does not create *memory*.
-
-Context is passive.  
-It does not decay.  
-It does not resolve contradictions.  
-It does not distinguish signal from noise.  
-It does not survive across sessions by itself.  
-
-Most importantly:
-a long context window can be rewritten wholesale by the next prompt.
-
-REMEMBRA is not interested in how much the model can see.  
-It is interested in what the system decides to keep.
-
-Memory, in REMEMBRA, is:
-
-- selective, not exhaustive
-- structured, not raw
-- governed, not implied
-- persistent across time, not bound to a single call
-
-Long context encourages accumulation.  
-REMEMBRA enforces curation.
-
-Long context allows the model to reinterpret the past.  
-REMEMBRA requires the past to be *explicit* and *auditable*.
-
-Long context scales cost.  
-REMEMBRA scales intent.
-
-Context answers the question:  
-“What has been said recently?”
-
-Memory answers a different question:  
-“What still matters?”
-
 REMEMBRA uses context where it is strong  
 and memory where it is necessary.
 
 The two are not interchangeable.
+
+
