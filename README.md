@@ -143,9 +143,7 @@ Examples:
 ### Confidence and Decay
 
 Every memory has a confidence score between 0.0 and 1.0. This score decays over
-time with a 7-day half-life:
-
-![REMEMBRA Memory Lifecycle](docs/remembra-memory-lifecycle.svg)
+time with a 7-day half-life.
 
 Decay ensures that stale information naturally fades unless it's reinforced
 through continued relevance. Memories that keep appearing in conversations
@@ -371,18 +369,6 @@ you should be able to understand why REMEMBRA remembers what it remembers.
 
 REMEMBRA includes a full web dashboard with three main panels:
 
-```
-+------------------+------------------------+------------------+
-|                  |                        |                  |
-|  LEFT SIDEBAR    |    MAIN CHAT AREA      |  RIGHT SIDEBAR   |
-|                  |                        |                  |
-|  - Memories      |  - Conversation        |  - Context View  |
-|  - Thoughts      |  - Message input       |  - Event Log     |
-|  - Profiles      |  - AI responses        |                  |
-|                  |                        |                  |
-+------------------+------------------------+------------------+
-```
-
 ### Left Sidebar
 
 - **Memory Inspector** - View all stored memories, filter by type, search, delete
@@ -408,9 +394,6 @@ The chat interface provides a seamless, continuous conversation view:
 
 The interface provides full visibility into REMEMBRA's internal state - you can
 see what it remembers, what it's thinking, and how decisions are being made.
-
----
-
 
 ---
 
@@ -440,7 +423,7 @@ inactive - not deleted, but no longer injected into context.
 
 Throughout this week, every memory change was governed, every decision logged,
 and the AI maintained coherent identity across sessions without any special
-prompting from you.
+prompting.
 
 ---
 
