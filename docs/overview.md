@@ -1,7 +1,7 @@
 # REMEMBRA Overview
 
 REMEMBRA is an experimental **remembering AI architecture**.  It explores what happens
-when an artificial agent is allowed to experience time, "reflect" internally, and
+when an artificial agent is allowed to experience time, reflect internally, and
 decide what should remain.
 
 REMEMBRA treats the language model as **stateless reasoning**. The model generates
