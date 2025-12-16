@@ -21,10 +21,9 @@ occurs, nothing happens at all.
 REMEMBRA asks a different question: What changes when an artificial agent is
 allowed to have a *past* that survives time, reflection, and absence?
 
-The system also maintains a seamless, limitless conversation history - users can
-scroll from the most recent message to the very first, even across thousands of
-messages, with visual indicators showing which messages are currently in the
-AI's context window.
+This allows the system to present a seamless, limitless conversation history - 
+from the most recent message to the very first, no matter how long (visual indicators 
+distinct messages in the AI's context window from pure history messages.
 
 ---
 
