@@ -4,6 +4,9 @@
 
 **Add persistent memory, governed reflection, and time awareness to any Ollama model.**
 
+<img width="1920" height="1080" alt="image" src="https://github.com/user-attachments/assets/e17fd71e-5534-4d74-bb1e-addd523e2c41" />
+
+
 REMEMBRA is an experimental **remembering AI architecture**.  It explores what happens
 when an artificial agent is allowed to experience time, reflect internally, and
 decide what should remain.
