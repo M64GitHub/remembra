@@ -216,24 +216,3 @@ Identity emerges from structure, not accumulation.
 - Not an alignment filter bolted onto output
 
 REMEMBRA explores **persistence under constraint**.
-
-## Philosophy
-
-REMEMBRA is not about making AI feel alive.
-
-It is about asking what must be true  
-for an artificial agent  
-to stop being infinitely rewriteable.
-
-When time is acknowledged,  
-when reflection is internal,  
-when memory resists persuasion,  
-identity stops being a performance  
-and becomes a responsibility.
-
-REMEMBRA uses context where it is strong  
-and memory where it is necessary.
-
-The two are not interchangeable.
-
-
