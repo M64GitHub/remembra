@@ -129,6 +129,9 @@ pub const PersonaProfile = struct {
     conf_episodes: f32,
     conf_idle: f32,
     conf_governor: f32,
+    idle_threshold_min: i32 = 15,
+    thought_interval_min: i32 = 60,
+    compaction_threshold: i32 = 6,
     created_at_ms: i64 = 0,
 };
 

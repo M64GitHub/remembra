@@ -13,6 +13,7 @@ const Types = @import("Types.zig");
 const ConfigConn = @import("ConfigConnection.zig").ConfigConnection;
 const ConfigSys = @import("ConfigSystem.zig").ConfigSystem;
 const ConfigIdent = @import("ConfigIdentity.zig").ConfigIdentity;
+const IdleThinker = @import("IdleThinker.zig").IdleThinker;
 
 pub const LastContext = struct {
     system_prompt: []const u8 = "",
@@ -49,6 +50,7 @@ pub const App = struct {
     prompt_episode_compactor_len: usize = 0,
     persona_kernel_buf: [2048]u8 = undefined,
     persona_kernel_len: usize = 0,
+    persona_idle_params: IdleThinker.Params = .{},
 
     pub fn init(allocator: std.mem.Allocator, cli: *Cli) !App {
         const conn = ConfigConn{};
@@ -155,6 +157,15 @@ pub const App = struct {
         self.ident.confidence_episodes = profile.conf_episodes;
         self.ident.confidence_idle_thoughts = profile.conf_idle;
         self.ident.confidence_min_governor = profile.conf_governor;
+
+        // Update idle thinker params from persona
+        self.persona_idle_params = .{
+            .idle_threshold_ms = @as(i64, profile.idle_threshold_min) *
+                60 * 1000,
+            .min_msgs_for_compaction = @intCast(profile.compaction_threshold),
+            .min_ms_between_thoughts = @as(i64, profile.thought_interval_min) *
+                60 * 1000,
+        };
 
         // Update AI name
         const name_len = @min(profile.ai_name.len, self.persona_name_buf.len);

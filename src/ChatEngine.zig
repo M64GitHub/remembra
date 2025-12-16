@@ -102,7 +102,7 @@ fn runIdleThinker(allocator: std.mem.Allocator, app: *App, pid: i64) !void {
         policy,
         app.cli,
         &app.events,
-        app.sys.idle_params,
+        app.persona_idle_params,
         now_ms,
         app.ident.llm_idle,
         app.ident.llm_episode,

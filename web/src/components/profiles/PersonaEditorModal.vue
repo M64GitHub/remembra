@@ -63,6 +63,9 @@ const form = ref({
   conf_episodes: 0.85,
   conf_idle: 0.55,
   conf_governor: 0.60,
+  idle_threshold_min: 15,
+  thought_interval_min: 60,
+  compaction_threshold: 6,
 })
 
 const activeSection = ref('basic')
@@ -86,6 +89,9 @@ watch(() => props.persona, async (p) => {
       conf_episodes: p.conf_episodes,
       conf_idle: p.conf_idle,
       conf_governor: p.conf_governor,
+      idle_threshold_min: p.idle_threshold_min ?? 15,
+      thought_interval_min: p.thought_interval_min ?? 60,
+      compaction_threshold: p.compaction_threshold ?? 6,
     }
 
     if (p.id) {
@@ -188,6 +194,9 @@ async function handleSave() {
     conf_episodes: form.value.conf_episodes,
     conf_idle: form.value.conf_idle,
     conf_governor: form.value.conf_governor,
+    idle_threshold_min: form.value.idle_threshold_min,
+    thought_interval_min: form.value.thought_interval_min,
+    compaction_threshold: form.value.compaction_threshold,
   }
 
   if (props.persona?.id) {
@@ -261,6 +270,11 @@ function formatPercent(val) {
           :class="{ active: activeSection === 'prompts' }"
           @click="activeSection = 'prompts'"
         >Prompts</button>
+        <button
+          class="nav-btn"
+          :class="{ active: activeSection === 'reflection' }"
+          @click="activeSection = 'reflection'"
+        >Reflection</button>
       </div>
 
       <div class="modal-body">
@@ -544,6 +558,51 @@ function formatPercent(val) {
             </div>
           </div>
         </div>
+
+        <div v-show="activeSection === 'reflection'" class="section">
+          <p class="section-desc">
+            Configure when and how often the AI generates idle thoughts.
+          </p>
+
+          <div class="form-group">
+            <label>Initial Idle Threshold (minutes)</label>
+            <input
+              type="number"
+              v-model.number="form.idle_threshold_min"
+              min="1"
+              max="1440"
+            />
+            <small class="field-help">
+              Time before first idle thought after user inactivity
+            </small>
+          </div>
+
+          <div class="form-group">
+            <label>Thought Interval (minutes)</label>
+            <input
+              type="number"
+              v-model.number="form.thought_interval_min"
+              min="1"
+              max="1440"
+            />
+            <small class="field-help">
+              Time between subsequent idle thoughts
+            </small>
+          </div>
+
+          <div class="form-group">
+            <label>Compaction Threshold (messages)</label>
+            <input
+              type="number"
+              v-model.number="form.compaction_threshold"
+              min="2"
+              max="50"
+            />
+            <small class="field-help">
+              Messages required before episode compaction runs
+            </small>
+          </div>
+        </div>
       </div>
 
       <div class="modal-footer">
@@ -682,6 +741,27 @@ function formatPercent(val) {
 .form-group input[type="text"]:focus {
   outline: none;
   border-color: var(--accent-primary);
+}
+
+.form-group input[type="number"] {
+  padding: var(--space-sm);
+  background: var(--bg-secondary);
+  border: var(--border-subtle);
+  border-radius: var(--border-radius);
+  color: var(--text-primary);
+  font-size: var(--text-sm);
+  width: 120px;
+}
+
+.form-group input[type="number"]:focus {
+  outline: none;
+  border-color: var(--accent-primary);
+}
+
+.field-help {
+  font-size: var(--text-xs);
+  color: var(--text-muted);
+  margin-top: 2px;
 }
 
 .llm-group,

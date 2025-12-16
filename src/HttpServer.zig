@@ -93,7 +93,7 @@ fn runIdleThinkerCheck(allocator: std.mem.Allocator, app: *App) void {
         policy,
         app.cli,
         &app.events,
-        app.sys.idle_params,
+        app.persona_idle_params,
         now_ms,
         app.ident.llm_idle,
         app.ident.llm_episode,
@@ -2192,6 +2192,9 @@ fn parsePersonaInput(
         .conf_episodes = getJsonFloat(root, "conf_episodes") orelse 0.85,
         .conf_idle = getJsonFloat(root, "conf_idle") orelse 0.55,
         .conf_governor = getJsonFloat(root, "conf_governor") orelse 0.6,
+        .idle_threshold_min = getJsonI32(root, "idle_threshold_min") orelse 15,
+        .thought_interval_min = getJsonI32(root, "thought_interval_min") orelse 60,
+        .compaction_threshold = getJsonI32(root, "compaction_threshold") orelse 12,
     };
 }
 
@@ -2252,6 +2255,9 @@ fn parsePersonaUpdateInput(
         .conf_episodes = getJsonFloat(root, "conf_episodes") orelse 0.85,
         .conf_idle = getJsonFloat(root, "conf_idle") orelse 0.55,
         .conf_governor = getJsonFloat(root, "conf_governor") orelse 0.6,
+        .idle_threshold_min = getJsonI32(root, "idle_threshold_min") orelse 15,
+        .thought_interval_min = getJsonI32(root, "thought_interval_min") orelse 60,
+        .compaction_threshold = getJsonI32(root, "compaction_threshold") orelse 6,
     };
 }
 
@@ -2271,6 +2277,17 @@ fn getJsonU32(
     obj: std.json.ObjectMap,
     key: []const u8,
 ) ?u32 {
+    const val = obj.get(key) orelse return null;
+    return switch (val) {
+        .integer => @intCast(val.integer),
+        else => null,
+    };
+}
+
+fn getJsonI32(
+    obj: std.json.ObjectMap,
+    key: []const u8,
+) ?i32 {
     const val = obj.get(key) orelse return null;
     return switch (val) {
         .integer => @intCast(val.integer),
@@ -2335,7 +2352,11 @@ fn buildPersonasJson(
                 "\"llm_idle_tokens\":{d},\"llm_episode_temp\":{d:.2}," ++
                 "\"llm_episode_tokens\":{d},\"conf_user_notes\":{d:.2}," ++
                 "\"conf_episodes\":{d:.2},\"conf_idle\":{d:.2}," ++
-                "\"conf_governor\":{d:.2},\"created_at_ms\":{d}}}",
+                "\"conf_governor\":{d:.2}," ++
+                "\"idle_threshold_min\":{d}," ++
+                "\"thought_interval_min\":{d}," ++
+                "\"compaction_threshold\":{d}," ++
+                "\"created_at_ms\":{d}}}",
             .{
                 p.id,
                 p.name,
@@ -2354,6 +2375,9 @@ fn buildPersonasJson(
                 p.conf_episodes,
                 p.conf_idle,
                 p.conf_governor,
+                p.idle_threshold_min,
+                p.thought_interval_min,
+                p.compaction_threshold,
                 p.created_at_ms,
             },
         );

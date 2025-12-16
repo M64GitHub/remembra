@@ -94,11 +94,14 @@ pub const SCHEMA =
     \\    llm_idle_tokens    INTEGER NOT NULL,
     \\    llm_episode_temp   REAL NOT NULL,
     \\    llm_episode_tokens INTEGER NOT NULL,
-    \\    conf_user_notes    REAL NOT NULL,
-    \\    conf_episodes      REAL NOT NULL,
-    \\    conf_idle          REAL NOT NULL,
-    \\    conf_governor      REAL NOT NULL,
-    \\    created_at_ms      INTEGER NOT NULL
+    \\    conf_user_notes      REAL NOT NULL,
+    \\    conf_episodes        REAL NOT NULL,
+    \\    conf_idle            REAL NOT NULL,
+    \\    conf_governor        REAL NOT NULL,
+    \\    idle_threshold_min   INTEGER NOT NULL DEFAULT 15,
+    \\    thought_interval_min INTEGER NOT NULL DEFAULT 60,
+    \\    compaction_threshold INTEGER NOT NULL DEFAULT 6,
+    \\    created_at_ms        INTEGER NOT NULL
     \\);
     \\
     \\CREATE TABLE IF NOT EXISTS identity_presets (
@@ -1544,14 +1547,15 @@ pub const MemoryStoreSqlite = struct {
         const now = self.nowMs();
 
         const stmt = try self.db.prepare(
-            "INSERT INTO persona_profiles(name, ai_name, tone, persona_kernel, " ++
-                "llm_chat_temp, llm_chat_tokens, " ++
-                "llm_reflect_temp, llm_reflect_tokens, " ++
-                "llm_idle_temp, llm_idle_tokens, " ++
-                "llm_episode_temp, llm_episode_tokens, " ++
-                "conf_user_notes, conf_episodes, conf_idle, conf_governor, " ++
-                "created_at_ms) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, " ++
-                "?, ?, ?, ?, ?);",
+            "INSERT INTO persona_profiles(name, ai_name, tone, persona_kernel," ++
+                " llm_chat_temp, llm_chat_tokens," ++
+                " llm_reflect_temp, llm_reflect_tokens," ++
+                " llm_idle_temp, llm_idle_tokens," ++
+                " llm_episode_temp, llm_episode_tokens," ++
+                " conf_user_notes, conf_episodes, conf_idle, conf_governor," ++
+                " idle_threshold_min, thought_interval_min, compaction_threshold," ++
+                " created_at_ms) VALUES" ++
+                "(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);",
         );
         defer sqlite.finalize(stmt);
 
@@ -1571,7 +1575,10 @@ pub const MemoryStoreSqlite = struct {
         sqlite.bindDouble(stmt, 14, profile.conf_episodes);
         sqlite.bindDouble(stmt, 15, profile.conf_idle);
         sqlite.bindDouble(stmt, 16, profile.conf_governor);
-        sqlite.bindInt64(stmt, 17, now);
+        sqlite.bindInt(stmt, 17, profile.idle_threshold_min);
+        sqlite.bindInt(stmt, 18, profile.thought_interval_min);
+        sqlite.bindInt(stmt, 19, profile.compaction_threshold);
+        sqlite.bindInt64(stmt, 20, now);
 
         if (sqlite.step(stmt) != c.SQLITE_DONE) {
             return error.SqliteStepFailed;
@@ -1585,14 +1592,16 @@ pub const MemoryStoreSqlite = struct {
         profile: Types.PersonaProfile,
     ) !void {
         const stmt = try self.db.prepare(
-            "UPDATE persona_profiles SET name=?, ai_name=?, tone=?, " ++
-                "persona_kernel=?, " ++
-                "llm_chat_temp=?, llm_chat_tokens=?, " ++
-                "llm_reflect_temp=?, llm_reflect_tokens=?, " ++
-                "llm_idle_temp=?, llm_idle_tokens=?, " ++
-                "llm_episode_temp=?, llm_episode_tokens=?, " ++
-                "conf_user_notes=?, conf_episodes=?, conf_idle=?, " ++
-                "conf_governor=? WHERE id=?;",
+            "UPDATE persona_profiles SET name=?, ai_name=?, tone=?," ++
+                " persona_kernel=?," ++
+                " llm_chat_temp=?, llm_chat_tokens=?," ++
+                " llm_reflect_temp=?, llm_reflect_tokens=?," ++
+                " llm_idle_temp=?, llm_idle_tokens=?," ++
+                " llm_episode_temp=?, llm_episode_tokens=?," ++
+                " conf_user_notes=?, conf_episodes=?, conf_idle=?," ++
+                " conf_governor=?," ++
+                " idle_threshold_min=?, thought_interval_min=?," ++
+                " compaction_threshold=? WHERE id=?;",
         );
         defer sqlite.finalize(stmt);
 
@@ -1612,7 +1621,10 @@ pub const MemoryStoreSqlite = struct {
         sqlite.bindDouble(stmt, 14, profile.conf_episodes);
         sqlite.bindDouble(stmt, 15, profile.conf_idle);
         sqlite.bindDouble(stmt, 16, profile.conf_governor);
-        sqlite.bindInt64(stmt, 17, profile.id);
+        sqlite.bindInt(stmt, 17, profile.idle_threshold_min);
+        sqlite.bindInt(stmt, 18, profile.thought_interval_min);
+        sqlite.bindInt(stmt, 19, profile.compaction_threshold);
+        sqlite.bindInt64(stmt, 20, profile.id);
 
         if (sqlite.step(stmt) != c.SQLITE_DONE) {
             return error.SqliteStepFailed;
@@ -1625,13 +1637,14 @@ pub const MemoryStoreSqlite = struct {
         id: i64,
     ) !?Types.PersonaProfile {
         const stmt = try self.db.prepare(
-            "SELECT id, name, ai_name, tone, persona_kernel, " ++
-                "llm_chat_temp, llm_chat_tokens, " ++
-                "llm_reflect_temp, llm_reflect_tokens, " ++
-                "llm_idle_temp, llm_idle_tokens, " ++
-                "llm_episode_temp, llm_episode_tokens, " ++
-                "conf_user_notes, conf_episodes, conf_idle, conf_governor, " ++
-                "created_at_ms FROM persona_profiles WHERE id=?;",
+            "SELECT id, name, ai_name, tone, persona_kernel," ++
+                " llm_chat_temp, llm_chat_tokens," ++
+                " llm_reflect_temp, llm_reflect_tokens," ++
+                " llm_idle_temp, llm_idle_tokens," ++
+                " llm_episode_temp, llm_episode_tokens," ++
+                " conf_user_notes, conf_episodes, conf_idle, conf_governor," ++
+                " idle_threshold_min, thought_interval_min, compaction_threshold," ++
+                " created_at_ms FROM persona_profiles WHERE id=?;",
         );
         defer sqlite.finalize(stmt);
 
@@ -1665,7 +1678,10 @@ pub const MemoryStoreSqlite = struct {
             .conf_episodes = @floatCast(sqlite.columnDouble(stmt, 14)),
             .conf_idle = @floatCast(sqlite.columnDouble(stmt, 15)),
             .conf_governor = @floatCast(sqlite.columnDouble(stmt, 16)),
-            .created_at_ms = sqlite.columnInt64(stmt, 17),
+            .idle_threshold_min = @intCast(sqlite.columnInt(stmt, 17)),
+            .thought_interval_min = @intCast(sqlite.columnInt(stmt, 18)),
+            .compaction_threshold = @intCast(sqlite.columnInt(stmt, 19)),
+            .created_at_ms = sqlite.columnInt64(stmt, 20),
         };
     }
 
@@ -1674,13 +1690,14 @@ pub const MemoryStoreSqlite = struct {
         allocator: std.mem.Allocator,
     ) ![]Types.PersonaProfile {
         const stmt = try self.db.prepare(
-            "SELECT id, name, ai_name, tone, persona_kernel, " ++
-                "llm_chat_temp, llm_chat_tokens, " ++
-                "llm_reflect_temp, llm_reflect_tokens, " ++
-                "llm_idle_temp, llm_idle_tokens, " ++
-                "llm_episode_temp, llm_episode_tokens, " ++
-                "conf_user_notes, conf_episodes, conf_idle, conf_governor, " ++
-                "created_at_ms FROM persona_profiles ORDER BY id ASC;",
+            "SELECT id, name, ai_name, tone, persona_kernel," ++
+                " llm_chat_temp, llm_chat_tokens," ++
+                " llm_reflect_temp, llm_reflect_tokens," ++
+                " llm_idle_temp, llm_idle_tokens," ++
+                " llm_episode_temp, llm_episode_tokens," ++
+                " conf_user_notes, conf_episodes, conf_idle, conf_governor," ++
+                " idle_threshold_min, thought_interval_min, compaction_threshold," ++
+                " created_at_ms FROM persona_profiles ORDER BY id ASC;",
         );
         defer sqlite.finalize(stmt);
 
@@ -1717,7 +1734,10 @@ pub const MemoryStoreSqlite = struct {
                 .conf_episodes = @floatCast(sqlite.columnDouble(stmt, 14)),
                 .conf_idle = @floatCast(sqlite.columnDouble(stmt, 15)),
                 .conf_governor = @floatCast(sqlite.columnDouble(stmt, 16)),
-                .created_at_ms = sqlite.columnInt64(stmt, 17),
+                .idle_threshold_min = @intCast(sqlite.columnInt(stmt, 17)),
+                .thought_interval_min = @intCast(sqlite.columnInt(stmt, 18)),
+                .compaction_threshold = @intCast(sqlite.columnInt(stmt, 19)),
+                .created_at_ms = sqlite.columnInt64(stmt, 20),
             });
         }
 
