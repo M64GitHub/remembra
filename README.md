@@ -1,3 +1,5 @@
+<img src="docs/remembra.svg" width="60" alt="REMEMBRA"/>
+
 # REMEMBRA
 
 **Add persistent memory, governed reflection, and time awareness to any Ollama model.**
@@ -53,9 +55,7 @@ The model may suggest. The system decides.
 
 REMEMBRA operates as a pipeline with distinct responsibilities:
 
-<p align="center">
-  
-</p>
+![REMEMBRA Architecture](docs/remembra-architecture.svg)
 
 
 
@@ -112,65 +112,8 @@ and personas.
 
 When you send a message, here's what happens:
 
-```
-User sends message
-        |
-        v
-+---------------------------------------+
-| 1. SECURITY CHECK                     |
-|    - Detect prompt injection attempts |
-|    - Check for explicit memory intent |
-+---------------------------------------+
-        |
-        v
-+---------------------------------------+
-| 2. GATHER CONTEXT                     |
-|    - Load persona identity            |
-|    - Retrieve relevant memories       |
-|    - Load recent conversation         |
-|    - Check for re-entry (after gap)   |
-+---------------------------------------+
-        |
-        v
-+---------------------------------------+
-| 3. BUILD PROMPT                       |
-|    - Combine identity + memory        |
-|    - Add time context                 |
-|    - Include conversation history     |
-+---------------------------------------+
-        |
-        v
-+---------------------------------------+
-| 4. CALL LLM                           |
-|    - Send to Ollama                   |
-|    - Receive response                 |
-+---------------------------------------+
-        |
-        v
-+---------------------------------------+
-| 5. STORE MESSAGES                     |
-|    - Save user message                |
-|    - Save assistant response          |
-+---------------------------------------+
-        |
-        v
-+---------------------------------------+
-| 6. REFLECT                            |
-|    - Analyze the exchange             |
-|    - Propose memory updates           |
-+---------------------------------------+
-        |
-        v
-+---------------------------------------+
-| 7. GOVERN                             |
-|    - Validate proposals               |
-|    - Apply approved changes           |
-|    - Log all decisions                |
-+---------------------------------------+
-        |
-        v
-Response shown to user
-```
+![REMEMBRA Flow](docs/remembra-flow.svg)
+
 
 Every turn is a complete cycle: gather context, generate response, reflect on
 what was learned, and govern what gets remembered.
