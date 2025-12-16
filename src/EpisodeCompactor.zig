@@ -49,6 +49,7 @@ pub const EpisodeCompactor = struct {
             cli,
         );
         defer allocator.free(resp.content);
+        defer if (resp.thinking) |t| allocator.free(t);
 
         const extracted = JsonUtils.extractJsonObject(resp.content);
         return parseEpisodeJson(allocator, extracted) catch {

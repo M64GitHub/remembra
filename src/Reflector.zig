@@ -72,6 +72,7 @@ pub const Reflector = struct {
             cli,
         );
         defer allocator.free(resp.content);
+        defer if (resp.thinking) |t| allocator.free(t);
 
         cli.msg(.dbg, "[Reflector] LLM response: {s}", .{resp.content});
 

@@ -49,6 +49,7 @@ pub fn processTurn(
 ) !void {
     const resp = try processAndReturn(allocator, app, user_input);
     defer allocator.free(resp.content);
+    defer if (resp.thinking) |t| allocator.free(t);
     app.cli.msg(.rok, "{s}", .{resp.content});
 }
 
@@ -68,6 +69,7 @@ pub fn processAndReturn(
 
     const resp = try generateReply(allocator, app, pid, &ctx, user_input);
     errdefer allocator.free(resp.content);
+    errdefer if (resp.thinking) |t| allocator.free(t);
 
     try runReflection(allocator, app, pid, &ctx, resp.content, allow_ops);
 
@@ -256,6 +258,7 @@ fn generateReply(
         .max_tokens = app.ident.llm_chat.max_tokens,
     }, app.cli);
     errdefer allocator.free(resp.content);
+    errdefer if (resp.thinking) |t| allocator.free(t);
 
     try app.store.insertMessage(allocator, pid, .assistant, resp.content);
 

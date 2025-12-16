@@ -184,6 +184,7 @@ pub const IdleThinker = struct {
             cli,
         );
         defer allocator.free(resp.content);
+        defer if (resp.thinking) |t| allocator.free(t);
 
         const extracted = JsonUtils.extractJsonObject(resp.content);
         return parseThoughtJson(allocator, extracted) catch {

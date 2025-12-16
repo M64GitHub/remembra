@@ -101,6 +101,7 @@ pub const ChatParams = struct {
 
 pub const ChatResponse = struct {
     content: []const u8,
+    thinking: ?[]const u8 = null,
     prompt_tokens: ?u32 = null,
     completion_tokens: ?u32 = null,
     eval_duration_ns: ?i64 = null,

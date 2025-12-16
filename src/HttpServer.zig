@@ -291,6 +291,7 @@ fn handleChat(
         return;
     };
     defer allocator.free(chat_resp.content);
+    defer if (chat_resp.thinking) |t| allocator.free(t);
 
     const response = try buildOllamaResponse(allocator, chat_resp);
     defer allocator.free(response);
@@ -624,6 +625,21 @@ fn buildOllamaResponse(
     if (resp.eval_duration_ns) |ns| {
         const ms = @divFloor(ns, 1_000_000);
         try out.writer(allocator).print(",\"eval_duration_ms\":{d}", .{ms});
+    }
+
+    if (resp.thinking) |thinking| {
+        try out.appendSlice(allocator, ",\"thinking\":\"");
+        for (thinking) |c| {
+            switch (c) {
+                '"' => try out.appendSlice(allocator, "\\\""),
+                '\\' => try out.appendSlice(allocator, "\\\\"),
+                '\n' => try out.appendSlice(allocator, "\\n"),
+                '\r' => try out.appendSlice(allocator, "\\r"),
+                '\t' => try out.appendSlice(allocator, "\\t"),
+                else => try out.append(allocator, c),
+            }
+        }
+        try out.append(allocator, '"');
     }
 
     try out.append(allocator, '}');

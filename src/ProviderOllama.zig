@@ -162,12 +162,19 @@ pub const ProviderOllama = struct {
             return error.OllamaInvalidJson;
         if (content != .string) return error.OllamaInvalidJson;
 
+        const thinking = try extractOptionalString(
+            allocator,
+            msg.object,
+            "thinking",
+        );
+
         const prompt_tokens = extractOptionalInt(root.object, "prompt_eval_count");
         const completion_tokens = extractOptionalInt(root.object, "eval_count");
         const eval_duration = extractOptionalInt64(root.object, "eval_duration");
 
         return .{
             .content = try allocator.dupe(u8, content.string),
+            .thinking = thinking,
             .prompt_tokens = prompt_tokens,
             .completion_tokens = completion_tokens,
             .eval_duration_ns = eval_duration,
@@ -192,6 +199,16 @@ pub const ProviderOllama = struct {
         const val = obj.get(key) orelse return null;
         if (val != .integer) return null;
         return val.integer;
+    }
+
+    fn extractOptionalString(
+        allocator: std.mem.Allocator,
+        obj: std.json.ObjectMap,
+        key: []const u8,
+    ) !?[]const u8 {
+        const val = obj.get(key) orelse return null;
+        if (val != .string) return null;
+        return try allocator.dupe(u8, val.string);
     }
 };
 
@@ -358,11 +375,13 @@ test "parseResponse extracts content and metadata" {
 
     const resp = try ProviderOllama.parseResponse(allocator, sample);
     defer allocator.free(resp.content);
+    defer if (resp.thinking) |t| allocator.free(t);
 
     try std.testing.expectEqualStrings("Hello!", resp.content);
     try std.testing.expectEqual(@as(?u32, 26), resp.prompt_tokens);
     try std.testing.expectEqual(@as(?u32, 8), resp.completion_tokens);
     try std.testing.expectEqual(@as(?i64, 161064248), resp.eval_duration_ns);
+    try std.testing.expectEqual(@as(?[]const u8, null), resp.thinking);
 }
 
 test "parseResponse handles missing metadata" {
@@ -374,9 +393,26 @@ test "parseResponse handles missing metadata" {
 
     const resp = try ProviderOllama.parseResponse(allocator, sample);
     defer allocator.free(resp.content);
+    defer if (resp.thinking) |t| allocator.free(t);
 
     try std.testing.expectEqualStrings("Hi", resp.content);
     try std.testing.expectEqual(@as(?u32, null), resp.prompt_tokens);
     try std.testing.expectEqual(@as(?u32, null), resp.completion_tokens);
     try std.testing.expectEqual(@as(?i64, null), resp.eval_duration_ns);
+}
+
+test "parseResponse extracts thinking field" {
+    const allocator = std.testing.allocator;
+
+    const sample =
+        \\{"model":"gpt-oss","message":{"role":"assistant",
+        \\"content":"Hello!","thinking":"I should greet the user."}}
+    ;
+
+    const resp = try ProviderOllama.parseResponse(allocator, sample);
+    defer allocator.free(resp.content);
+    defer if (resp.thinking) |t| allocator.free(t);
+
+    try std.testing.expectEqualStrings("Hello!", resp.content);
+    try std.testing.expectEqualStrings("I should greet the user.", resp.thinking.?);
 }

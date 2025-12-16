@@ -123,6 +123,7 @@ async function sendMessage(text) {
       prompt_tokens: data.prompt_tokens,
       completion_tokens: data.completion_tokens,
       eval_duration_ms: data.eval_duration_ms,
+      thinking: data.thinking,
     })
   } catch (e) {
     error.value = e.message

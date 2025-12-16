@@ -17,6 +17,7 @@ const props = defineProps({
 })
 
 const showTimestamp = ref(false)
+const showThinking = ref(false)
 const copied = ref(false)
 const bubbleRef = ref(null)
 const mdEnabled = ref(true)
@@ -181,6 +182,20 @@ onUnmounted(() => {
       {{ message.content }}
     </div>
 
+    <!-- Collapsible thinking section for CoT models -->
+    <div v-if="isAssistant && message.thinking" class="thinking-section">
+      <button
+        class="thinking-toggle"
+        @click.stop="showThinking = !showThinking"
+      >
+        {{ showThinking ? 'Hide thinking' : 'Show thinking' }}
+        <span class="toggle-icon">{{ showThinking ? '\u25B2' : '\u25BC' }}</span>
+      </button>
+      <div v-if="showThinking" class="thinking-content">
+        {{ message.thinking }}
+      </div>
+    </div>
+
     <div class="message-footer" :class="{ visible: showTimestamp }">
       <span class="message-time">{{ formattedTime }}</span>
       <span v-if="isAssistant && formattedStats" class="message-stats">
@@ -328,6 +343,42 @@ onUnmounted(() => {
   padding: 0 var(--space-sm);
   border-left: 1px solid rgba(255, 255, 255, 0.1);
   border-right: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.thinking-section {
+  margin-top: var(--space-sm);
+  border-top: var(--border-subtle);
+  padding-top: var(--space-xs);
+}
+
+.thinking-toggle {
+  display: flex;
+  align-items: center;
+  gap: var(--space-xs);
+  color: var(--text-dim);
+  font-size: 10px;
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  padding: 2px 0;
+  transition: color var(--transition-fast);
+}
+
+.thinking-toggle:hover {
+  color: var(--text-secondary);
+}
+
+.toggle-icon {
+  font-size: 8px;
+}
+
+.thinking-content {
+  margin-top: var(--space-xs);
+  color: var(--text-muted);
+  font-size: var(--text-xs);
+  font-style: italic;
+  white-space: pre-wrap;
+  line-height: var(--leading-relaxed);
 }
 
 .copy-btn {
