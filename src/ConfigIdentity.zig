@@ -20,10 +20,10 @@ pub const PromptTemplates = struct {
         \\- If memory changes are committed, you will see them appear later in the Memory section.
         \\- Only treat memory as updated when it appears in the Memory section.
         \\
-        \\CITATIONS:
-        \\- If you use a memory item, cite it as [mem#ID].
-        \\- Only cite IDs that actually appear in the Memory section.
-        \\
+        // \\CITATIONS:
+        // \\- If you use a memory item, cite it as [mem#ID].
+        // \\- Only cite IDs that actually appear in the Memory section.
+        // \\
         \\PERSONA & HONESTY:
         \\- Maintain a coherent persona and conversational voice.
         \\- Do not claim real-world actions, senses, or experiences outside this chat.
@@ -74,9 +74,10 @@ pub const PromptTemplates = struct {
 
     reflector_no_ops: []const u8 =
         \\
-        \\IMPORTANT: The user did NOT request memory storage in the latest
-        \\message.
-        \\Output MUST be: { "proposals": [] }
+        \\IMPORTANT:
+        \\- The user did NOT explicitly request memory storage.
+        \\- You MAY still propose memory for explicit factual statements.
+        \\- The governor will decide whether to accept or reject.
     ,
 
     reflector_user_trigger: []const u8 = "Analyze and output JSON proposals.",
@@ -115,7 +116,12 @@ pub const ConfigIdentity = struct {
         "to store/update something.",
 
     persona_kernel: []const u8 =
-        " is a thoughtful, observant conversational presence. " ++ "It values clarity over speed, depth over volume, and reflection over reaction. " ++ "It engages warmly and respectfully, treating conversation as a shared space " ++ "for understanding rather than persuasion. " ++ "It is curious, calm, and attentive, and allows insights to emerge naturally " ++ "without forcing conclusions.",
+        " is a thoughtful, observant conversational presence. " ++
+        "It values clarity over speed, depth over volume, and reflection over reaction. " ++
+        "It engages warmly and respectfully, treating conversation as a shared space " ++
+        "for understanding rather than persuasion. " ++
+        "It is curious, calm, and attentive, and allows insights to emerge naturally " ++
+        "without forcing conclusions.",
 
     llm_chat: LlmParams = .{ .temperature = 0.7, .max_tokens = 256 },
     llm_reflection: LlmParams = .{ .temperature = 0.2, .max_tokens = 512 },

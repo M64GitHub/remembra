@@ -5,6 +5,7 @@ import { appState, reloadAllData, registerReload } from '../../stores/appState.j
 import ProviderCard from './ProviderCard.vue'
 import PersonaCard from './PersonaCard.vue'
 import PersonaEditorModal from './PersonaEditorModal.vue'
+import ProviderEditorModal from './ProviderEditorModal.vue'
 
 const activeTab = ref('personas')
 const providers = ref([])
@@ -17,6 +18,16 @@ const error = ref(null)
 const showPersonaModal = ref(false)
 const editingPersona = ref(null)
 const modalMode = ref('edit')
+
+const showProviderModal = ref(false)
+const editingProvider = ref(null)
+const providerModalMode = ref('edit')
+
+const defaultProvider = {
+  name: '',
+  ollama_url: 'http://127.0.0.1:11434',
+  model: 'llama3.2',
+}
 
 const defaultPersona = {
   name: '',
@@ -86,10 +97,10 @@ async function setActive(providerId, personaId) {
   }
 }
 
-async function deleteProvider(name) {
+async function deleteProvider(id) {
   try {
-    await profilesApi.providers.remove(name)
-    providers.value = providers.value.filter(p => p.name !== name)
+    await profilesApi.providers.remove(id)
+    providers.value = providers.value.filter(p => p.id !== id)
   } catch (e) {
     error.value = e.message
   }
@@ -131,6 +142,38 @@ async function savePersona(personaData) {
     }
     await loadProfiles()
     closePersonaEditor()
+  } catch (e) {
+    error.value = e.message
+  }
+}
+
+function openProviderEditor(provider) {
+  editingProvider.value = { ...provider }
+  providerModalMode.value = 'edit'
+  showProviderModal.value = true
+}
+
+function createNewProvider() {
+  editingProvider.value = { ...defaultProvider }
+  providerModalMode.value = 'create'
+  showProviderModal.value = true
+}
+
+function closeProviderEditor() {
+  showProviderModal.value = false
+  editingProvider.value = null
+  providerModalMode.value = 'edit'
+}
+
+async function saveProvider(providerData) {
+  try {
+    if (providerModalMode.value === 'create') {
+      await profilesApi.providers.create(providerData)
+    } else {
+      await profilesApi.providers.update(providerData)
+    }
+    await loadProfiles()
+    closeProviderEditor()
   } catch (e) {
     error.value = e.message
   }
@@ -187,6 +230,7 @@ onUnmounted(() => {
 
     <div class="profiles-content">
       <div v-if="activeTab === 'providers'" class="profile-list">
+        <button class="new-btn" @click="createNewProvider">+ New Provider</button>
         <ProviderCard
           v-for="provider in providers"
           :key="provider.id"
@@ -195,6 +239,7 @@ onUnmounted(() => {
           :can-delete="providers.length > 1"
           @activate="setActive(provider.id, activeIds.persona_id)"
           @delete="deleteProvider"
+          @edit="openProviderEditor"
         />
         <div v-if="providers.length === 0 && !isLoading" class="empty-state">
           No providers configured
@@ -229,6 +274,14 @@ onUnmounted(() => {
       :mode="modalMode"
       @save="savePersona"
       @cancel="closePersonaEditor"
+    />
+
+    <ProviderEditorModal
+      v-if="showProviderModal"
+      :provider="editingProvider"
+      :mode="providerModalMode"
+      @save="saveProvider"
+      @cancel="closeProviderEditor"
     />
   </div>
 </template>

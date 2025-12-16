@@ -50,6 +50,7 @@ pub const IdleThinker = struct {
                 llm_idle,
                 prompts,
                 ai_name,
+                cli,
             );
             defer allocator.free(thought);
 
@@ -93,6 +94,7 @@ pub const IdleThinker = struct {
                     llm_episode,
                     prompts,
                     ai_name,
+                    cli,
                 );
                 defer {
                     allocator.free(ep.title);
@@ -106,14 +108,19 @@ pub const IdleThinker = struct {
                 );
                 defer allocator.free(combined);
 
-                _ = try store.addMemoryGoverned(allocator, persona_id, policy, .{
-                    .kind = .note,
-                    .subject = "episode",
-                    .predicate = "summary",
-                    .object = combined,
-                    .confidence = conf_episode,
-                    .is_active = true,
-                });
+                _ = try store.addMemoryGoverned(
+                    allocator,
+                    persona_id,
+                    policy,
+                    .{
+                        .kind = .note,
+                        .subject = "episode",
+                        .predicate = "summary",
+                        .object = combined,
+                        .confidence = conf_episode,
+                        .is_active = true,
+                    },
+                );
 
                 store.advanceEpisodeCutoffToEnd(persona_id);
                 cli.msg(
@@ -145,6 +152,7 @@ pub const IdleThinker = struct {
         llm_params: LlmParams,
         prompts: PromptTemplates,
         ai_name: []const u8,
+        cli: *Cli,
     ) ![]u8 {
         const prompt = try buildThoughtPrompt(
             allocator,
@@ -165,11 +173,16 @@ pub const IdleThinker = struct {
             },
         };
 
-        const response = try provider.chat(allocator, msgs, .{
-            .model = "mock-idle",
-            .temperature = llm_params.temperature,
-            .max_tokens = llm_params.max_tokens,
-        });
+        const response = try provider.chat(
+            allocator,
+            msgs,
+            .{
+                .model = "mock-idle",
+                .temperature = llm_params.temperature,
+                .max_tokens = llm_params.max_tokens,
+            },
+            cli,
+        );
         defer allocator.free(response);
 
         const extracted = JsonUtils.extractJsonObject(response);

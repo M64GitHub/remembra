@@ -89,7 +89,8 @@ export const profiles = {
   providers: {
     list: () => get('/api/profiles/providers'),
     create: (profile) => post('/api/profiles/providers', profile),
-    remove: (name) => del(`/api/profiles/providers?name=${encodeURIComponent(name)}`),
+    update: (profile) => post('/api/profiles/providers/update', profile),
+    remove: (id) => del(`/api/profiles/providers/${id}`),
   },
   personas: {
     list: () => get('/api/profiles/personas'),
@@ -104,6 +105,11 @@ export const profiles = {
       persona_id: personaId,
     }),
   },
+};
+
+export const ollama = {
+  listModels: (url = 'http://127.0.0.1:11434') =>
+    get(`/api/ollama/models?url=${encodeURIComponent(url)}`),
 };
 
 export const prompts = {

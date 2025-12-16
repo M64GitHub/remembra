@@ -104,7 +104,12 @@ pub const Retrieval = struct {
         const age_ms = ageMs(m, now_ms);
         const rec = recencyScore(age_ms, params.recency_half_life_ms);
 
-        const rel = relevanceScore(user_input, m.subject, m.predicate, m.object);
+        const rel = relevanceScore(
+            user_input,
+            m.subject,
+            m.predicate,
+            m.object,
+        );
 
         return params.w_conf * conf +
             params.w_recency * rec +

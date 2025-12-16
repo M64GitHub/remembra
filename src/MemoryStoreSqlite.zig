@@ -74,6 +74,9 @@ pub const SCHEMA =
     \\    name          TEXT NOT NULL UNIQUE,
     \\    ollama_url    TEXT NOT NULL,
     \\    model         TEXT NOT NULL,
+    \\    size          INTEGER NOT NULL DEFAULT 0,
+    \\    digest        TEXT NOT NULL DEFAULT '',
+    \\    modified_at   TEXT NOT NULL DEFAULT '',
     \\    created_at_ms INTEGER NOT NULL
     \\);
     \\
@@ -143,6 +146,9 @@ pub const MemoryStoreSqlite = struct {
                 "local-ollama",
                 "http://127.0.0.1:11434",
                 "llama3.2",
+                0,
+                "",
+                "",
             );
             try self.setMetaI64("active_provider_id", provider_id);
         }
@@ -187,16 +193,11 @@ pub const MemoryStoreSqlite = struct {
 
             // Store default prompts in DB
             const defaults = PromptTemplates{};
-            try self.setPersonaPrompt(persona_id, "system_spine",
-                defaults.system_spine);
-            try self.setPersonaPrompt(persona_id, "reflector_system",
-                defaults.reflector_system);
-            try self.setPersonaPrompt(persona_id, "reflector_no_ops",
-                defaults.reflector_no_ops);
-            try self.setPersonaPrompt(persona_id, "idle_thinker",
-                defaults.idle_thinker);
-            try self.setPersonaPrompt(persona_id, "episode_compactor",
-                defaults.episode_compactor);
+            try self.setPersonaPrompt(persona_id, "system_spine", defaults.system_spine);
+            try self.setPersonaPrompt(persona_id, "reflector_system", defaults.reflector_system);
+            try self.setPersonaPrompt(persona_id, "reflector_no_ops", defaults.reflector_no_ops);
+            try self.setPersonaPrompt(persona_id, "idle_thinker", defaults.idle_thinker);
+            try self.setPersonaPrompt(persona_id, "episode_compactor", defaults.episode_compactor);
         }
     }
 
@@ -470,7 +471,10 @@ pub const MemoryStoreSqlite = struct {
         return try out.toOwnedSlice(allocator);
     }
 
-    pub fn countMessagesSinceCutoff(self: *MemoryStoreSqlite, persona_id: i64) usize {
+    pub fn countMessagesSinceCutoff(
+        self: *MemoryStoreSqlite,
+        persona_id: i64,
+    ) usize {
         const total = self.countMessages(persona_id) catch 0;
         const cutoff = self.getEpisodeCutoffIndex(persona_id);
         if (cutoff > total) return 0;
@@ -505,7 +509,10 @@ pub const MemoryStoreSqlite = struct {
                 try out.append(allocator, .{
                     .id = sqlite.columnInt64(stmt, 0),
                     .role = @enumFromInt(sqlite.columnInt(stmt, 1)),
-                    .content = try allocator.dupe(u8, sqlite.columnText(stmt, 2)),
+                    .content = try allocator.dupe(
+                        u8,
+                        sqlite.columnText(stmt, 2),
+                    ),
                     .created_at_ms = sqlite.columnInt64(stmt, 3),
                 });
             }
@@ -523,7 +530,10 @@ pub const MemoryStoreSqlite = struct {
                 try out.append(allocator, .{
                     .id = sqlite.columnInt64(stmt, 0),
                     .role = @enumFromInt(sqlite.columnInt(stmt, 1)),
-                    .content = try allocator.dupe(u8, sqlite.columnText(stmt, 2)),
+                    .content = try allocator.dupe(
+                        u8,
+                        sqlite.columnText(stmt, 2),
+                    ),
                     .created_at_ms = sqlite.columnInt64(stmt, 3),
                 });
             }
@@ -572,7 +582,10 @@ pub const MemoryStoreSqlite = struct {
         return try out.toOwnedSlice(allocator);
     }
 
-    pub fn getEpisodeCutoffIndex(self: *MemoryStoreSqlite, persona_id: i64) usize {
+    pub fn getEpisodeCutoffIndex(
+        self: *MemoryStoreSqlite,
+        persona_id: i64,
+    ) usize {
         var buf: [64]u8 = undefined;
         const key = std.fmt.bufPrint(
             &buf,
@@ -583,7 +596,10 @@ pub const MemoryStoreSqlite = struct {
         return @intCast(@max(v, 0));
     }
 
-    pub fn advanceEpisodeCutoffToEnd(self: *MemoryStoreSqlite, persona_id: i64) void {
+    pub fn advanceEpisodeCutoffToEnd(
+        self: *MemoryStoreSqlite,
+        persona_id: i64,
+    ) void {
         var buf: [64]u8 = undefined;
         const key = std.fmt.bufPrint(
             &buf,
@@ -670,14 +686,23 @@ pub const MemoryStoreSqlite = struct {
         }
 
         if (out.items.len == 0) {
-            try self.addIdentityEntry(allocator, persona_id, "tone", defaults.tone);
+            try self.addIdentityEntry(
+                allocator,
+                persona_id,
+                "tone",
+                defaults.tone,
+            );
             try self.addIdentityEntry(
                 allocator,
                 persona_id,
                 "memory_contract",
                 defaults.memory_contract,
             );
-            return self.loadIdentityCoreWithDefaults(allocator, persona_id, defaults);
+            return self.loadIdentityCoreWithDefaults(
+                allocator,
+                persona_id,
+                defaults,
+            );
         }
 
         return try out.toOwnedSlice(allocator);
@@ -963,7 +988,10 @@ pub const MemoryStoreSqlite = struct {
         return @intCast(sqlite.columnInt64(stmt, 0));
     }
 
-    pub fn countActiveMemories(self: *MemoryStoreSqlite, persona_id: i64) !usize {
+    pub fn countActiveMemories(
+        self: *MemoryStoreSqlite,
+        persona_id: i64,
+    ) !usize {
         const stmt = try self.db.prepare(
             "SELECT COUNT(*) FROM memory_items WHERE persona_id=? AND is_active=1;",
         );
@@ -973,7 +1001,11 @@ pub const MemoryStoreSqlite = struct {
         return @intCast(sqlite.columnInt64(stmt, 0));
     }
 
-    pub fn deactivateMemory(self: *MemoryStoreSqlite, persona_id: i64, id: i64) !void {
+    pub fn deactivateMemory(
+        self: *MemoryStoreSqlite,
+        persona_id: i64,
+        id: i64,
+    ) !void {
         const now = self.nowMs();
 
         const stmt = try self.db.prepare(
@@ -1216,7 +1248,10 @@ pub const MemoryStoreSqlite = struct {
             sqlite.bindInt(stmt, 4, @intCast(limit));
 
             while (sqlite.step(stmt) == c.SQLITE_ROW) {
-                try out.append(allocator, try self.readEventRow(allocator, stmt));
+                try out.append(
+                    allocator,
+                    try self.readEventRow(allocator, stmt),
+                );
             }
         } else if (since_ms != null) {
             const stmt = try self.db.prepare(
@@ -1231,7 +1266,10 @@ pub const MemoryStoreSqlite = struct {
             sqlite.bindInt(stmt, 3, @intCast(limit));
 
             while (sqlite.step(stmt) == c.SQLITE_ROW) {
-                try out.append(allocator, try self.readEventRow(allocator, stmt));
+                try out.append(
+                    allocator,
+                    try self.readEventRow(allocator, stmt),
+                );
             }
         } else if (kind_filter != null) {
             const stmt = try self.db.prepare(
@@ -1246,7 +1284,10 @@ pub const MemoryStoreSqlite = struct {
             sqlite.bindInt(stmt, 3, @intCast(limit));
 
             while (sqlite.step(stmt) == c.SQLITE_ROW) {
-                try out.append(allocator, try self.readEventRow(allocator, stmt));
+                try out.append(
+                    allocator,
+                    try self.readEventRow(allocator, stmt),
+                );
             }
         } else {
             const stmt = try self.db.prepare(
@@ -1260,7 +1301,10 @@ pub const MemoryStoreSqlite = struct {
             sqlite.bindInt(stmt, 2, @intCast(limit));
 
             while (sqlite.step(stmt) == c.SQLITE_ROW) {
-                try out.append(allocator, try self.readEventRow(allocator, stmt));
+                try out.append(
+                    allocator,
+                    try self.readEventRow(allocator, stmt),
+                );
             }
         }
 
@@ -1304,19 +1348,26 @@ pub const MemoryStoreSqlite = struct {
         name: []const u8,
         ollama_url: []const u8,
         model: []const u8,
+        size: i64,
+        digest: []const u8,
+        modified_at: []const u8,
     ) !i64 {
         const now = self.nowMs();
 
         const stmt = try self.db.prepare(
             "INSERT INTO provider_profiles(name, ollama_url, model, " ++
-                "created_at_ms) VALUES(?, ?, ?, ?);",
+                "size, digest, modified_at, created_at_ms) " ++
+                "VALUES(?, ?, ?, ?, ?, ?, ?);",
         );
         defer sqlite.finalize(stmt);
 
         sqlite.bindText(stmt, 1, name);
         sqlite.bindText(stmt, 2, ollama_url);
         sqlite.bindText(stmt, 3, model);
-        sqlite.bindInt64(stmt, 4, now);
+        sqlite.bindInt64(stmt, 4, size);
+        sqlite.bindText(stmt, 5, digest);
+        sqlite.bindText(stmt, 6, modified_at);
+        sqlite.bindInt64(stmt, 7, now);
 
         if (sqlite.step(stmt) != c.SQLITE_DONE) {
             return error.SqliteStepFailed;
@@ -1331,8 +1382,8 @@ pub const MemoryStoreSqlite = struct {
         id: i64,
     ) !?Types.ProviderProfile {
         const stmt = try self.db.prepare(
-            "SELECT id, name, ollama_url, model, created_at_ms " ++
-                "FROM provider_profiles WHERE id=?;",
+            "SELECT id, name, ollama_url, model, size, digest, " ++
+                "modified_at, created_at_ms FROM provider_profiles WHERE id=?;",
         );
         defer sqlite.finalize(stmt);
 
@@ -1345,7 +1396,10 @@ pub const MemoryStoreSqlite = struct {
             .name = try allocator.dupe(u8, sqlite.columnText(stmt, 1)),
             .ollama_url = try allocator.dupe(u8, sqlite.columnText(stmt, 2)),
             .model = try allocator.dupe(u8, sqlite.columnText(stmt, 3)),
-            .created_at_ms = sqlite.columnInt64(stmt, 4),
+            .size = sqlite.columnInt64(stmt, 4),
+            .digest = try allocator.dupe(u8, sqlite.columnText(stmt, 5)),
+            .modified_at = try allocator.dupe(u8, sqlite.columnText(stmt, 6)),
+            .created_at_ms = sqlite.columnInt64(stmt, 7),
         };
     }
 
@@ -1354,8 +1408,9 @@ pub const MemoryStoreSqlite = struct {
         allocator: std.mem.Allocator,
     ) ![]Types.ProviderProfile {
         const stmt = try self.db.prepare(
-            "SELECT id, name, ollama_url, model, created_at_ms " ++
-                "FROM provider_profiles ORDER BY id ASC;",
+            "SELECT id, name, ollama_url, model, size, digest, " ++
+                "modified_at, created_at_ms FROM provider_profiles " ++
+                "ORDER BY id ASC;",
         );
         defer sqlite.finalize(stmt);
 
@@ -1365,6 +1420,8 @@ pub const MemoryStoreSqlite = struct {
                 allocator.free(@constCast(p.name));
                 allocator.free(@constCast(p.ollama_url));
                 allocator.free(@constCast(p.model));
+                allocator.free(@constCast(p.digest));
+                allocator.free(@constCast(p.modified_at));
             }
             out.deinit(allocator);
         }
@@ -1375,7 +1432,10 @@ pub const MemoryStoreSqlite = struct {
                 .name = try allocator.dupe(u8, sqlite.columnText(stmt, 1)),
                 .ollama_url = try allocator.dupe(u8, sqlite.columnText(stmt, 2)),
                 .model = try allocator.dupe(u8, sqlite.columnText(stmt, 3)),
-                .created_at_ms = sqlite.columnInt64(stmt, 4),
+                .size = sqlite.columnInt64(stmt, 4),
+                .digest = try allocator.dupe(u8, sqlite.columnText(stmt, 5)),
+                .modified_at = try allocator.dupe(u8, sqlite.columnText(stmt, 6)),
+                .created_at_ms = sqlite.columnInt64(stmt, 7),
             });
         }
 
@@ -1389,6 +1449,35 @@ pub const MemoryStoreSqlite = struct {
         defer sqlite.finalize(stmt);
 
         sqlite.bindInt64(stmt, 1, id);
+
+        if (sqlite.step(stmt) != c.SQLITE_DONE) {
+            return error.SqliteStepFailed;
+        }
+    }
+
+    pub fn updateProviderProfile(
+        self: *MemoryStoreSqlite,
+        id: i64,
+        name: []const u8,
+        ollama_url: []const u8,
+        model: []const u8,
+        size: i64,
+        digest: []const u8,
+        modified_at: []const u8,
+    ) !void {
+        const stmt = try self.db.prepare(
+            "UPDATE provider_profiles SET name=?, ollama_url=?, model=?, " ++
+                "size=?, digest=?, modified_at=? WHERE id=?;",
+        );
+        defer sqlite.finalize(stmt);
+
+        sqlite.bindText(stmt, 1, name);
+        sqlite.bindText(stmt, 2, ollama_url);
+        sqlite.bindText(stmt, 3, model);
+        sqlite.bindInt64(stmt, 4, size);
+        sqlite.bindText(stmt, 5, digest);
+        sqlite.bindText(stmt, 6, modified_at);
+        sqlite.bindInt64(stmt, 7, id);
 
         if (sqlite.step(stmt) != c.SQLITE_DONE) {
             return error.SqliteStepFailed;
@@ -1694,6 +1783,8 @@ pub fn freeProviderProfile(
     allocator.free(@constCast(p.name));
     allocator.free(@constCast(p.ollama_url));
     allocator.free(@constCast(p.model));
+    if (p.digest.len > 0) allocator.free(@constCast(p.digest));
+    if (p.modified_at.len > 0) allocator.free(@constCast(p.modified_at));
 }
 
 pub fn freePersonaStrings(
