@@ -108,10 +108,7 @@ and personas.
 
 ## How a Conversation Turn Works
 
-When you send a message, here's what happens:
-
 ![REMEMBRA Flow](docs/remembra-flow.svg)
-
 
 Every turn is a complete cycle: gather context, generate response, reflect on
 what was learned, and govern what gets remembered.
@@ -147,7 +144,6 @@ Every memory has a confidence score between 0.0 and 1.0. This score decays over
 time with a 7-day half-life:
 
 ![REMEMBRA Memory Lifecycle](docs/remembra-memory-lifecycle.svg)
-
 
 Decay ensures that stale information naturally fades unless it's reinforced
 through continued relevance. Memories that keep appearing in conversations
@@ -238,32 +234,8 @@ The Idle Thinker activates after 5 minutes of silence and generates internal
 reflections - thoughts that aren't shown directly but become part of the AI's
 memory:
 
-```
-User conversation ends
-        |
-        | (5 minutes pass)
-        v
-+---------------------------+
-| Idle Thinker Activates    |
-|                           |
-| - Reviews recent messages |
-| - Generates internal      |
-|   thought/question        |
-| - Stores as self-note     |
-|   (confidence: 0.55)      |
-+---------------------------+
-        |
-        | (more time passes, 6+ messages accumulated)
-        v
-+---------------------------+
-| Episode Compaction        |
-|                           |
-| - Summarizes conversation |
-| - Creates episode memory  |
-|   (confidence: 0.85)      |
-| - Advances cutoff marker  |
-+---------------------------+
-```
+![REMEMBRA Architecture](docs/remembra-idle-thinker.svg)
+
 
 Idle thoughts are stored with lower confidence (0.55) because they're
 speculative. Episode summaries get higher confidence (0.85) because they
