@@ -1,10 +1,8 @@
 # REMEMBRA Overview
 
-REMEMBRA is an experimental **remembering AI architecture**. It explores what happens
+REMEMBRA is an experimental **remembering AI architecture**.  It explores what happens
 when an artificial agent is allowed to experience time, reflect internally, and
 decide what should remain.
-
-This is not a chatbot. Not a prompt trick. Not a long context window.
 
 REMEMBRA treats the language model as **stateless reasoning**. The model generates
 text, but all continuity - memory, time awareness, reflection, forgetting - is
@@ -23,7 +21,7 @@ allowed to have a *past* that survives time, reflection, and absence?
 
 This allows the system to present a seamless, limitless conversation history - 
 from the most recent message to the very first, no matter how long (visual indicators 
-distinct messages in the AI's context window from pure history messages.
+distinct messages in the AI's context window from pure history messages).
 
 ---
 
