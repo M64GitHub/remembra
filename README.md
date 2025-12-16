@@ -4,7 +4,7 @@
 
 **Add persistent memory, governed reflection, and time awareness to any Ollama model.**
 
-<img width="1920" height="1080" alt="image" src="https://github.com/user-attachments/assets/e17fd71e-5534-4d74-bb1e-addd523e2c41" />
+<img width="1920" height="1080" alt="image" src="https://github.com/user-attachments/assets/b1fe3cae-4181-4576-9a0c-53cdeee0d1d1" />
 
 
 REMEMBRA is an experimental **remembering AI architecture**.  It explores what happens
