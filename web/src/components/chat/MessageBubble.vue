@@ -1,6 +1,9 @@
 <script setup>
-import { computed, ref } from 'vue'
+import { computed, ref, onMounted, onUnmounted } from 'vue'
 import { appState } from '../../stores/appState.js'
+import { useMarkdown } from '../../composables/useMarkdown.js'
+
+const { renderMarkdown } = useMarkdown()
 
 const props = defineProps({
   message: {
@@ -15,9 +18,19 @@ const props = defineProps({
 
 const showTimestamp = ref(false)
 const copied = ref(false)
+const bubbleRef = ref(null)
+const mdEnabled = ref(true)
 
 const isUser = computed(() => props.message.role === 'user')
 const isSystem = computed(() => props.message.role === 'system')
+const isAssistant = computed(() => !isUser.value && !isSystem.value)
+
+const renderedContent = computed(() => {
+  if (!isSystem.value) {
+    return renderMarkdown(props.message.content)
+  }
+  return null
+})
 
 const formattedTime = computed(() => {
   // Try multiple possible field names
@@ -63,14 +76,49 @@ async function copyContent() {
     console.error('Failed to copy:', e)
   }
 }
+
+function toggleMarkdown(event) {
+  event.stopPropagation()
+  mdEnabled.value = !mdEnabled.value
+}
+
+function handleCodeCopy(event) {
+  const btn = event.target.closest('.md-code-copy')
+  if (!btn) return
+
+  event.stopPropagation()
+  const code = decodeURIComponent(btn.dataset.code)
+
+  navigator.clipboard.writeText(code).then(() => {
+    btn.textContent = 'Copied!'
+    btn.classList.add('copied')
+    setTimeout(() => {
+      btn.textContent = 'Copy'
+      btn.classList.remove('copied')
+    }, 2000)
+  })
+}
+
+onMounted(() => {
+  if (bubbleRef.value) {
+    bubbleRef.value.addEventListener('click', handleCodeCopy)
+  }
+})
+
+onUnmounted(() => {
+  if (bubbleRef.value) {
+    bubbleRef.value.removeEventListener('click', handleCodeCopy)
+  }
+})
 </script>
 
 <template>
   <div
+    ref="bubbleRef"
     class="message-bubble"
     :class="{
       user: isUser,
-      assistant: !isUser && !isSystem,
+      assistant: isAssistant,
       system: isSystem,
       pending: message.pending,
       error: message.error,
@@ -80,13 +128,34 @@ async function copyContent() {
   >
     <div class="message-header" v-if="!isUser">
       <span class="message-role">{{ isSystem ? 'SYSTEM' : appState.activeAiName }}</span>
+      <button
+        v-if="isAssistant"
+        class="md-toggle"
+        :class="{ disabled: !mdEnabled }"
+        @click="toggleMarkdown"
+        :title="mdEnabled ? 'Disable markdown' : 'Enable markdown'"
+      >md</button>
       <span class="context-indicator" v-if="inContext" title="In context window">&#x25CB;</span>
     </div>
     <div class="message-header user-header" v-else>
+      <button
+        class="md-toggle"
+        :class="{ disabled: !mdEnabled }"
+        @click="toggleMarkdown"
+        :title="mdEnabled ? 'Disable markdown' : 'Enable markdown'"
+      >md</button>
       <span class="context-indicator" v-if="inContext" title="In context window">&#x25CB;</span>
     </div>
 
-    <div class="message-content">
+    <!-- Markdown rendered content for user and assistant -->
+    <div
+      v-if="!isSystem && renderedContent && mdEnabled"
+      class="message-content markdown-content"
+      v-html="renderedContent"
+    ></div>
+
+    <!-- Plain text for system messages or when markdown disabled -->
+    <div v-else class="message-content">
       {{ message.content }}
     </div>
 
@@ -247,5 +316,51 @@ async function copyContent() {
 .user .copy-btn:hover {
   background: rgba(255, 255, 255, 0.2);
   color: white;
+}
+
+.md-toggle {
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  padding: 1px 4px;
+  border-radius: var(--border-radius-sm);
+  color: var(--text-dim);
+  background: transparent;
+  border: 1px solid transparent;
+  cursor: pointer;
+  opacity: 0;
+  transition: all var(--transition-fast);
+  text-transform: lowercase;
+}
+
+.message-bubble:hover .md-toggle,
+.md-toggle.disabled {
+  opacity: 1;
+}
+
+.md-toggle:hover {
+  color: var(--text-secondary);
+  background: var(--bg-tertiary);
+  border-color: rgba(255, 255, 255, 0.1);
+}
+
+.md-toggle.disabled {
+  color: var(--warning);
+  border-color: var(--warning);
+  opacity: 0.8;
+}
+
+.user .md-toggle {
+  color: rgba(255, 255, 255, 0.5);
+}
+
+.user .md-toggle:hover {
+  color: white;
+  background: rgba(255, 255, 255, 0.2);
+  border-color: rgba(255, 255, 255, 0.3);
+}
+
+.user .md-toggle.disabled {
+  color: var(--warning);
+  border-color: var(--warning);
 }
 </style>

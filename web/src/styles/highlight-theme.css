@@ -1,0 +1,123 @@
+/* Custom Highlight.js Theme for REMEMBRA */
+/* Based on the application's color variables */
+
+.hljs {
+  color: var(--text-primary);
+  background: transparent;
+}
+
+/* Comments - Muted */
+.hljs-comment,
+.hljs-quote {
+  color: var(--text-dim);
+  font-style: italic;
+}
+
+/* Keywords, Built-ins - Indigo */
+.hljs-keyword,
+.hljs-selector-tag,
+.hljs-addition {
+  color: #818cf8;
+}
+
+/* Strings - Success Green */
+.hljs-string,
+.hljs-doctag,
+.hljs-regexp {
+  color: var(--success);
+}
+
+/* Numbers, Booleans - Warning/Gold */
+.hljs-number,
+.hljs-literal,
+.hljs-bullet {
+  color: var(--warning);
+}
+
+/* Functions, Methods - Accent Secondary (Purple) */
+.hljs-title,
+.hljs-section,
+.hljs-name {
+  color: var(--accent-secondary);
+}
+
+/* Variables, Parameters - Info Blue */
+.hljs-variable,
+.hljs-template-variable,
+.hljs-attribute,
+.hljs-params {
+  color: var(--info);
+}
+
+/* Types, Classes - Memory Fact (Light Indigo) */
+.hljs-type,
+.hljs-class .hljs-title,
+.hljs-built_in {
+  color: var(--memory-fact);
+}
+
+/* Tags (HTML/XML) - Memory Note (Cyan) */
+.hljs-tag {
+  color: var(--memory-note);
+}
+
+/* Attributes - Memory Preference (Light Purple) */
+.hljs-attr {
+  color: var(--memory-preference);
+}
+
+/* Symbols, Meta - Text Secondary */
+.hljs-symbol,
+.hljs-meta,
+.hljs-selector-id,
+.hljs-selector-class {
+  color: var(--text-secondary);
+}
+
+/* Deletion - Error Red */
+.hljs-deletion {
+  color: var(--error);
+  background: var(--error-dim);
+}
+
+/* Addition highlight */
+.hljs-addition {
+  background: var(--success-dim);
+}
+
+/* Emphasis */
+.hljs-emphasis {
+  font-style: italic;
+}
+
+.hljs-strong {
+  font-weight: bold;
+}
+
+/* Links */
+.hljs-link {
+  color: var(--accent-primary);
+  text-decoration: underline;
+}
+
+/* Punctuation and operators */
+.hljs-punctuation,
+.hljs-operator {
+  color: var(--text-secondary);
+}
+
+/* Property names */
+.hljs-property {
+  color: var(--info);
+}
+
+/* Constants */
+.hljs-constant {
+  color: var(--warning);
+}
+
+/* Template literals */
+.hljs-template-tag,
+.hljs-subst {
+  color: var(--text-primary);
+}
