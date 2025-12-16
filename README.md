@@ -57,8 +57,6 @@ REMEMBRA operates as a pipeline with distinct responsibilities:
 
 ![REMEMBRA Architecture](docs/remembra-architecture.svg)
 
-
-
 The architecture separates concerns cleanly:
 - The **User Interface** handles interaction
 - The **Chat Engine** processes each conversation turn
@@ -148,16 +146,8 @@ Examples:
 Every memory has a confidence score between 0.0 and 1.0. This score decays over
 time with a 7-day half-life:
 
-```
-Memory Lifecycle:
+![REMEMBRA Memory Lifecycle](docs/remembra-memory-lifecycle.svg)
 
-Day 0:  [##########] 0.85  (freshly stored)
-Day 7:  [#####     ] 0.42  (half-life reached)
-Day 14: [##        ] 0.21  (continued decay)
-Day 21: [#         ] 0.10  (approaching deactivation)
-
-Below 0.20: Memory becomes inactive (archived, not deleted)
-```
 
 Decay ensures that stale information naturally fades unless it's reinforced
 through continued relevance. Memories that keep appearing in conversations
@@ -188,27 +178,8 @@ When the Reflector proposes a memory update, the Governor checks:
 4. **Deduplication** - Exact matches are rejected
 5. **Subject validity** - Only "user" or "self" subjects allowed
 
-```
-Proposal Flow:
+![REMEMBRA](docs/remembra-governor.svg)
 
-Reflector proposes:
-  "Add fact: user.likes = cats (confidence: 0.9)"
-                |
-                v
-         +-------------+
-         |  Governor   |
-         +-------------+
-         | Validate    |
-         | Rate check  |
-         | Dedup check |
-         +-------------+
-                |
-       +--------+--------+
-       |                 |
-       v                 v
-   APPROVED          BLOCKED
-   (stored)          (logged)
-```
 
 Every decision - approved or blocked - is logged in the event system. This
 creates an audit trail of all memory governance decisions.
