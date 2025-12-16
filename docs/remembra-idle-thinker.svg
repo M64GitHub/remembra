@@ -1,0 +1,82 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 500 480" width="500" height="480">
+  <defs>
+    <filter id="thoughtGlow">
+      <feGaussianBlur stdDeviation="2" result="coloredBlur"/>
+      <feMerge>
+        <feMergeNode in="coloredBlur"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+  </defs>
+  
+  <!-- Background -->
+  <rect width="500" height="480" fill="#0f1419"/>
+  
+  <!-- Title -->
+  <text x="250" y="30" text-anchor="middle" fill="#e4e4e7" font-family="system-ui, -apple-system, sans-serif" font-size="16" font-weight="600">Background Processing</text>
+  <text x="250" y="48" text-anchor="middle" fill="#71717a" font-family="system-ui, sans-serif" font-size="10">What happens during silence</text>
+  
+  <!-- Conversation ends -->
+  <rect x="150" y="65" width="200" height="35" rx="17" fill="#1a1f2e" stroke="#3b82f6" stroke-width="1.5"/>
+  <text x="250" y="87" text-anchor="middle" fill="#3b82f6" font-family="system-ui, sans-serif" font-size="11">User conversation ends</text>
+  
+  <!-- Time indicator -->
+  <path d="M250 100 L250 135" stroke="#52525b" stroke-width="1.5" stroke-dasharray="4,4"/>
+  <rect x="200" y="115" width="100" height="20" rx="4" fill="#252b3b"/>
+  <text x="250" y="129" text-anchor="middle" fill="#f59e0b" font-family="monospace" font-size="9">5 minutes pass</text>
+  
+  <!-- Idle Thinker Box -->
+  <rect x="75" y="145" width="350" height="130" rx="8" fill="#1a1f2e" stroke="#8b5cf6" stroke-width="1.5"/>
+  <rect x="75" y="145" width="350" height="28" rx="8" fill="#8b5cf6" opacity="0.15"/>
+  <text x="250" y="165" text-anchor="middle" fill="#8b5cf6" font-family="system-ui, sans-serif" font-size="12" font-weight="600">IDLE THINKER ACTIVATES</text>
+  
+  <g fill="#a1a1aa" font-family="system-ui, sans-serif" font-size="10">
+    <text x="100" y="195">• Reviews recent messages</text>
+    <text x="100" y="215">• Generates internal thought/question</text>
+    <text x="100" y="235">• Stores as self-note</text>
+  </g>
+  
+  <!-- Confidence badge -->
+  <rect x="320" y="220" width="90" height="24" rx="12" fill="#252b3b" stroke="#8b5cf6" stroke-width="1"/>
+  <text x="365" y="236" text-anchor="middle" fill="#8b5cf6" font-family="monospace" font-size="10">conf: 0.55</text>
+  
+  <!-- Thought bubble decoration -->
+  <circle cx="395" cy="175" r="3" fill="#8b5cf6" opacity="0.4" filter="url(#thoughtGlow)"/>
+  <circle cx="405" cy="165" r="4" fill="#8b5cf6" opacity="0.3" filter="url(#thoughtGlow)"/>
+  <circle cx="418" cy="158" r="5" fill="#8b5cf6" opacity="0.2" filter="url(#thoughtGlow)"/>
+  
+  <!-- Time indicator 2 -->
+  <path d="M250 275 L250 310" stroke="#52525b" stroke-width="1.5" stroke-dasharray="4,4"/>
+  <rect x="150" y="285" width="200" height="20" rx="4" fill="#252b3b"/>
+  <text x="250" y="299" text-anchor="middle" fill="#f59e0b" font-family="monospace" font-size="9">more time passes, 6+ messages</text>
+  
+  <!-- Episode Compaction Box -->
+  <rect x="75" y="320" width="350" height="130" rx="8" fill="#1a1f2e" stroke="#7c3aed" stroke-width="1.5"/>
+  <rect x="75" y="320" width="350" height="28" rx="8" fill="#7c3aed" opacity="0.15"/>
+  <text x="250" y="340" text-anchor="middle" fill="#7c3aed" font-family="system-ui, sans-serif" font-size="12" font-weight="600">EPISODE COMPACTION</text>
+  
+  <g fill="#a1a1aa" font-family="system-ui, sans-serif" font-size="10">
+    <text x="100" y="370">• Summarizes conversation</text>
+    <text x="100" y="390">• Creates episode memory</text>
+    <text x="100" y="410">• Advances cutoff marker</text>
+  </g>
+  
+  <!-- Confidence badge -->
+  <rect x="320" y="395" width="90" height="24" rx="12" fill="#252b3b" stroke="#22c55e" stroke-width="1"/>
+  <text x="365" y="411" text-anchor="middle" fill="#22c55e" font-family="monospace" font-size="10">conf: 0.85</text>
+  
+  <!-- Episode icon decoration -->
+  <rect x="390" y="350" width="20" height="3" rx="1" fill="#7c3aed" opacity="0.5"/>
+  <rect x="390" y="356" width="16" height="3" rx="1" fill="#7c3aed" opacity="0.4"/>
+  <rect x="390" y="362" width="12" height="3" rx="1" fill="#7c3aed" opacity="0.3"/>
+  
+  <!-- Legend -->
+  <rect x="145" y="458" width="210" height="18" rx="4" fill="#252b3b"/>
+  <circle cx="170" cy="467" r="5" fill="#8b5cf6"/>
+  <text x="180" y="471" fill="#71717a" font-family="system-ui, sans-serif" font-size="9">Speculative</text>
+  <circle cx="270" cy="467" r="5" fill="#22c55e"/>
+  <text x="280" y="471" fill="#71717a" font-family="system-ui, sans-serif" font-size="9">Factual record</text>
+  
+  <!-- Version tag -->
+  <text x="480" y="475" text-anchor="end" fill="#52525b" font-family="monospace" font-size="9">REMEMBRA v0.1</text>
+</svg>

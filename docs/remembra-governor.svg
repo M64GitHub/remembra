@@ -1,0 +1,68 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 500 400" width="500" height="400">
+  <defs>
+    <filter id="glowGreen">
+      <feGaussianBlur stdDeviation="2" result="coloredBlur"/>
+      <feMerge>
+        <feMergeNode in="coloredBlur"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+  </defs>
+  
+  <!-- Background -->
+  <rect width="500" height="400" fill="#0f1419"/>
+  
+  <!-- Title -->
+  <text x="250" y="30" text-anchor="middle" fill="#e4e4e7" font-family="system-ui, -apple-system, sans-serif" font-size="16" font-weight="600">Governor Proposal Flow</text>
+  
+  <!-- Reflector Proposal -->
+  <rect x="125" y="50" width="250" height="55" rx="8" fill="#1a1f2e" stroke="#8b5cf6" stroke-width="1.5"/>
+  <text x="250" y="72" text-anchor="middle" fill="#8b5cf6" font-family="system-ui, sans-serif" font-size="11" font-weight="600">Reflector Proposes</text>
+  <text x="250" y="92" text-anchor="middle" fill="#a1a1aa" font-family="monospace" font-size="9">"Add fact: user.likes = cats (0.9)"</text>
+  
+  <!-- Arrow down -->
+  <path d="M250 105 L250 130 M244 124 L250 130 L256 124" stroke="#8b5cf6" stroke-width="1.5" fill="none"/>
+  
+  <!-- Governor Box -->
+  <rect x="150" y="135" width="200" height="120" rx="8" fill="#1a1f2e" stroke="#00d4aa" stroke-width="2"/>
+  <rect x="150" y="135" width="200" height="28" rx="8" fill="#00d4aa" opacity="0.15"/>
+  <text x="250" y="155" text-anchor="middle" fill="#00d4aa" font-family="system-ui, sans-serif" font-size="13" font-weight="700">GOVERNOR</text>
+  
+  <!-- Governor checks -->
+  <g fill="#a1a1aa" font-family="system-ui, sans-serif" font-size="10">
+    <text x="170" y="180">✓ Action type valid</text>
+    <text x="170" y="198">✓ Confidence ≥ 0.6</text>
+    <text x="170" y="216">✓ Rate limit OK</text>
+    <text x="170" y="234">✓ Not duplicate</text>
+  </g>
+  
+  <!-- Arrow down -->
+  <path d="M250 255 L250 280 M244 274 L250 280 L256 274" stroke="#00d4aa" stroke-width="1.5" fill="none"/>
+  
+  <!-- Decision diamond (simplified as branching arrows) -->
+  <circle cx="250" cy="295" r="15" fill="#252b3b" stroke="#f59e0b" stroke-width="1.5"/>
+  <text x="250" y="299" text-anchor="middle" fill="#f59e0b" font-family="system-ui, sans-serif" font-size="10">?</text>
+  
+  <!-- Left branch - APPROVED -->
+  <path d="M235 295 L120 295 L120 330 M114 324 L120 330 L126 324" stroke="#22c55e" stroke-width="2" fill="none"/>
+  
+  <rect x="50" y="335" width="140" height="50" rx="8" fill="#1a1f2e" stroke="#22c55e" stroke-width="2" filter="url(#glowGreen)"/>
+  <rect x="50" y="335" width="140" height="22" rx="8" fill="#22c55e" opacity="0.2"/>
+  <text x="120" y="352" text-anchor="middle" fill="#22c55e" font-family="system-ui, sans-serif" font-size="11" font-weight="600">APPROVED</text>
+  <text x="120" y="372" text-anchor="middle" fill="#71717a" font-family="system-ui, sans-serif" font-size="9">→ Stored in memory</text>
+  
+  <!-- Right branch - BLOCKED -->
+  <path d="M265 295 L380 295 L380 330 M374 324 L380 330 L386 324" stroke="#ef4444" stroke-width="2" fill="none"/>
+  
+  <rect x="310" y="335" width="140" height="50" rx="8" fill="#1a1f2e" stroke="#ef4444" stroke-width="2"/>
+  <rect x="310" y="335" width="140" height="22" rx="8" fill="#ef4444" opacity="0.2"/>
+  <text x="380" y="352" text-anchor="middle" fill="#ef4444" font-family="system-ui, sans-serif" font-size="11" font-weight="600">BLOCKED</text>
+  <text x="380" y="372" text-anchor="middle" fill="#71717a" font-family="system-ui, sans-serif" font-size="9">→ Logged only</text>
+  
+  <!-- Labels for paths -->
+  <text x="85" y="288" fill="#22c55e" font-family="system-ui, sans-serif" font-size="9">All checks pass</text>
+  <text x="385" y="288" fill="#ef4444" font-family="system-ui, sans-serif" font-size="9">Any check fails</text>
+  
+  <!-- Version tag -->
+  <text x="480" y="392" text-anchor="end" fill="#52525b" font-family="monospace" font-size="9">REMEMBRA v0.1</text>
+</svg>

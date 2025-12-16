@@ -1,0 +1,108 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 600 350" width="600" height="350">
+  <defs>
+    <linearGradient id="decayGradient" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" style="stop-color:#00d4aa"/>
+      <stop offset="50%" style="stop-color:#f59e0b"/>
+      <stop offset="100%" style="stop-color:#ef4444"/>
+    </linearGradient>
+    <linearGradient id="barActive" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" style="stop-color:#00d4aa"/>
+      <stop offset="100%" style="stop-color:#00d4aa;stop-opacity:0.6"/>
+    </linearGradient>
+  </defs>
+  
+  <!-- Background -->
+  <rect width="600" height="350" fill="#0f1419"/>
+  
+  <!-- Title -->
+  <text x="300" y="30" text-anchor="middle" fill="#e4e4e7" font-family="system-ui, -apple-system, sans-serif" font-size="16" font-weight="600">Memory Lifecycle</text>
+  <text x="300" y="50" text-anchor="middle" fill="#71717a" font-family="system-ui, sans-serif" font-size="11">7-day half-life decay</text>
+  
+  <!-- Day 0 -->
+  <g transform="translate(40, 80)">
+    <rect x="0" y="0" width="520" height="50" rx="6" fill="#1a1f2e"/>
+    <text x="15" y="30" fill="#a1a1aa" font-family="monospace" font-size="12" font-weight="500">Day 0</text>
+    <text x="95" y="30" fill="#71717a" font-family="system-ui, sans-serif" font-size="10">freshly stored</text>
+    
+    <!-- Confidence bar -->
+    <rect x="200" y="15" width="200" height="20" rx="4" fill="#252b3b"/>
+    <rect x="200" y="15" width="170" height="20" rx="4" fill="url(#barActive)"/>
+    
+    <!-- Value -->
+    <text x="420" y="30" fill="#00d4aa" font-family="monospace" font-size="13" font-weight="600">0.85</text>
+    
+    <!-- Status indicator -->
+    <circle cx="490" cy="25" r="8" fill="#22c55e" opacity="0.2"/>
+    <circle cx="490" cy="25" r="4" fill="#22c55e"/>
+  </g>
+  
+  <!-- Day 7 -->
+  <g transform="translate(40, 140)">
+    <rect x="0" y="0" width="520" height="50" rx="6" fill="#1a1f2e"/>
+    <text x="15" y="30" fill="#a1a1aa" font-family="monospace" font-size="12" font-weight="500">Day 7</text>
+    <text x="95" y="30" fill="#71717a" font-family="system-ui, sans-serif" font-size="10">half-life reached</text>
+    
+    <!-- Confidence bar -->
+    <rect x="200" y="15" width="200" height="20" rx="4" fill="#252b3b"/>
+    <rect x="200" y="15" width="100" height="20" rx="4" fill="#f59e0b"/>
+    
+    <!-- Value -->
+    <text x="420" y="30" fill="#f59e0b" font-family="monospace" font-size="13" font-weight="600">0.42</text>
+    
+    <!-- Status indicator -->
+    <circle cx="490" cy="25" r="8" fill="#f59e0b" opacity="0.2"/>
+    <circle cx="490" cy="25" r="4" fill="#f59e0b"/>
+  </g>
+  
+  <!-- Day 14 -->
+  <g transform="translate(40, 200)">
+    <rect x="0" y="0" width="520" height="50" rx="6" fill="#1a1f2e"/>
+    <text x="15" y="30" fill="#a1a1aa" font-family="monospace" font-size="12" font-weight="500">Day 14</text>
+    <text x="100" y="30" fill="#71717a" font-family="system-ui, sans-serif" font-size="10">continued decay</text>
+    
+    <!-- Confidence bar -->
+    <rect x="200" y="15" width="200" height="20" rx="4" fill="#252b3b"/>
+    <rect x="200" y="15" width="50" height="20" rx="4" fill="#f97316"/>
+    
+    <!-- Value -->
+    <text x="420" y="30" fill="#f97316" font-family="monospace" font-size="13" font-weight="600">0.21</text>
+    
+    <!-- Status indicator -->
+    <circle cx="490" cy="25" r="8" fill="#f97316" opacity="0.2"/>
+    <circle cx="490" cy="25" r="4" fill="#f97316"/>
+  </g>
+  
+  <!-- Day 21 -->
+  <g transform="translate(40, 260)">
+    <rect x="0" y="0" width="520" height="50" rx="6" fill="#1a1f2e" stroke="#ef4444" stroke-width="1" stroke-dasharray="4,2"/>
+    <text x="15" y="30" fill="#a1a1aa" font-family="monospace" font-size="12" font-weight="500">Day 21</text>
+    <text x="100" y="30" fill="#71717a" font-family="system-ui, sans-serif" font-size="10">approaching deactivation</text>
+    
+    <!-- Confidence bar -->
+    <rect x="200" y="15" width="200" height="20" rx="4" fill="#252b3b"/>
+    <rect x="200" y="15" width="24" height="20" rx="4" fill="#ef4444"/>
+    
+    <!-- Value -->
+    <text x="420" y="30" fill="#ef4444" font-family="monospace" font-size="13" font-weight="600">0.10</text>
+    
+    <!-- Status indicator - inactive -->
+    <circle cx="490" cy="25" r="8" fill="#ef4444" opacity="0.2"/>
+    <text x="490" y="29" text-anchor="middle" fill="#ef4444" font-family="system-ui, sans-serif" font-size="8">!</text>
+  </g>
+  
+  <!-- Threshold line -->
+  <line x1="240" y1="330" x2="560" y2="330" stroke="#52525b" stroke-width="1" stroke-dasharray="4,4"/>
+  <text x="290" y="345" fill="#52525b" font-family="system-ui, sans-serif" font-size="9">Below 0.20: Memory becomes inactive (archived, not deleted)</text>
+  
+  <!-- Legend -->
+  <rect x="40" y="320" width="160" height="25" rx="4" fill="#252b3b"/>
+  <circle cx="55" cy="332" r="5" fill="#22c55e"/>
+  <text x="65" y="336" fill="#71717a" font-family="system-ui, sans-serif" font-size="9">Active</text>
+  <circle cx="115" cy="332" r="5" fill="#f59e0b"/>
+  <text x="125" y="336" fill="#71717a" font-family="system-ui, sans-serif" font-size="9">Fading</text>
+  <circle cx="175" cy="332" r="5" fill="#ef4444"/>
+  <text x="185" y="336" fill="#71717a" font-family="system-ui, sans-serif" font-size="9">⚠</text>
+  
+  <!-- Version tag -->
+  <text x="580" y="345" text-anchor="end" fill="#52525b" font-family="monospace" font-size="9">REMEMBRA v0.1</text>
+</svg>

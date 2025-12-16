@@ -1,0 +1,109 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 400 900" width="400" height="900">
+  <defs>
+    <linearGradient id="flowGradient" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" style="stop-color:#00d4aa;stop-opacity:1"/>
+      <stop offset="50%" style="stop-color:#7c3aed;stop-opacity:1"/>
+      <stop offset="100%" style="stop-color:#3b82f6;stop-opacity:1"/>
+    </linearGradient>
+    <filter id="softGlow">
+      <feGaussianBlur stdDeviation="1.5" result="coloredBlur"/>
+      <feMerge>
+        <feMergeNode in="coloredBlur"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+  </defs>
+  
+  <!-- Background -->
+  <rect width="400" height="900" fill="#0f1419"/>
+  
+  <!-- Title -->
+  <text x="200" y="35" text-anchor="middle" fill="#e4e4e7" font-family="system-ui, -apple-system, sans-serif" font-size="16" font-weight="600">Conversation Turn Flow</text>
+  
+  <!-- Flow line (vertical gradient line) -->
+  <line x1="200" y1="70" x2="200" y2="830" stroke="url(#flowGradient)" stroke-width="2" stroke-dasharray="4,4" opacity="0.3"/>
+  
+  <!-- User input (start) -->
+  <ellipse cx="200" cy="70" rx="80" ry="25" fill="#1a1f2e" stroke="#00d4aa" stroke-width="2"/>
+  <text x="200" y="75" text-anchor="middle" fill="#00d4aa" font-family="system-ui, sans-serif" font-size="12" font-weight="500">User sends message</text>
+  
+  <!-- Arrow -->
+  <path d="M200 95 L200 115 M194 109 L200 115 L206 109" stroke="#00d4aa" stroke-width="1.5" fill="none"/>
+  
+  <!-- Step 1: Security Check -->
+  <rect x="60" y="125" width="280" height="70" rx="8" fill="#1a1f2e" stroke="#ef4444" stroke-width="1.5"/>
+  <rect x="60" y="125" width="280" height="24" rx="8" fill="#ef4444" opacity="0.15"/>
+  <text x="80" y="142" fill="#ef4444" font-family="monospace" font-size="11" font-weight="600">1. SECURITY CHECK</text>
+  <text x="80" y="162" fill="#a1a1aa" font-family="system-ui, sans-serif" font-size="10">• Detect prompt injection attempts</text>
+  <text x="80" y="178" fill="#a1a1aa" font-family="system-ui, sans-serif" font-size="10">• Check for explicit memory intent</text>
+  
+  <!-- Arrow -->
+  <path d="M200 195 L200 215 M194 209 L200 215 L206 209" stroke="#52525b" stroke-width="1.5" fill="none"/>
+  
+  <!-- Step 2: Gather Context -->
+  <rect x="60" y="225" width="280" height="90" rx="8" fill="#1a1f2e" stroke="#7c3aed" stroke-width="1.5"/>
+  <rect x="60" y="225" width="280" height="24" rx="8" fill="#7c3aed" opacity="0.15"/>
+  <text x="80" y="242" fill="#7c3aed" font-family="monospace" font-size="11" font-weight="600">2. GATHER CONTEXT</text>
+  <text x="80" y="262" fill="#a1a1aa" font-family="system-ui, sans-serif" font-size="10">• Load persona identity</text>
+  <text x="80" y="278" fill="#a1a1aa" font-family="system-ui, sans-serif" font-size="10">• Retrieve relevant memories</text>
+  <text x="80" y="294" fill="#a1a1aa" font-family="system-ui, sans-serif" font-size="10">• Load recent conversation</text>
+  
+  <!-- Arrow -->
+  <path d="M200 315 L200 335 M194 329 L200 335 L206 329" stroke="#52525b" stroke-width="1.5" fill="none"/>
+  
+  <!-- Step 3: Build Prompt -->
+  <rect x="60" y="345" width="280" height="80" rx="8" fill="#1a1f2e" stroke="#3b82f6" stroke-width="1.5"/>
+  <rect x="60" y="345" width="280" height="24" rx="8" fill="#3b82f6" opacity="0.15"/>
+  <text x="80" y="362" fill="#3b82f6" font-family="monospace" font-size="11" font-weight="600">3. BUILD PROMPT</text>
+  <text x="80" y="382" fill="#a1a1aa" font-family="system-ui, sans-serif" font-size="10">• Combine identity + memory</text>
+  <text x="80" y="398" fill="#a1a1aa" font-family="system-ui, sans-serif" font-size="10">• Add time context</text>
+  <text x="80" y="414" fill="#a1a1aa" font-family="system-ui, sans-serif" font-size="10">• Include conversation history</text>
+  
+  <!-- Arrow -->
+  <path d="M200 425 L200 445 M194 439 L200 445 L206 439" stroke="#52525b" stroke-width="1.5" fill="none"/>
+  
+  <!-- Step 4: Call LLM -->
+  <rect x="60" y="455" width="280" height="60" rx="8" fill="#1a1f2e" stroke="#f59e0b" stroke-width="1.5"/>
+  <rect x="60" y="455" width="280" height="24" rx="8" fill="#f59e0b" opacity="0.15"/>
+  <text x="80" y="472" fill="#f59e0b" font-family="monospace" font-size="11" font-weight="600">4. CALL LLM</text>
+  <text x="80" y="492" fill="#a1a1aa" font-family="system-ui, sans-serif" font-size="10">• Send to Ollama → Receive response</text>
+  
+  <!-- Arrow -->
+  <path d="M200 515 L200 535 M194 529 L200 535 L206 529" stroke="#52525b" stroke-width="1.5" fill="none"/>
+  
+  <!-- Step 5: Store Messages -->
+  <rect x="60" y="545" width="280" height="60" rx="8" fill="#1a1f2e" stroke="#06b6d4" stroke-width="1.5"/>
+  <rect x="60" y="545" width="280" height="24" rx="8" fill="#06b6d4" opacity="0.15"/>
+  <text x="80" y="562" fill="#06b6d4" font-family="monospace" font-size="11" font-weight="600">5. STORE MESSAGES</text>
+  <text x="80" y="582" fill="#a1a1aa" font-family="system-ui, sans-serif" font-size="10">• Save user message + assistant response</text>
+  
+  <!-- Arrow -->
+  <path d="M200 605 L200 625 M194 619 L200 625 L206 619" stroke="#52525b" stroke-width="1.5" fill="none"/>
+  
+  <!-- Step 6: Reflect -->
+  <rect x="60" y="635" width="280" height="60" rx="8" fill="#1a1f2e" stroke="#8b5cf6" stroke-width="1.5"/>
+  <rect x="60" y="635" width="280" height="24" rx="8" fill="#8b5cf6" opacity="0.15"/>
+  <text x="80" y="652" fill="#8b5cf6" font-family="monospace" font-size="11" font-weight="600">6. REFLECT</text>
+  <text x="80" y="672" fill="#a1a1aa" font-family="system-ui, sans-serif" font-size="10">• Analyze exchange → Propose memory updates</text>
+  
+  <!-- Arrow -->
+  <path d="M200 695 L200 715 M194 709 L200 715 L206 709" stroke="#52525b" stroke-width="1.5" fill="none"/>
+  
+  <!-- Step 7: Govern -->
+  <rect x="60" y="725" width="280" height="80" rx="8" fill="#1a1f2e" stroke="#00d4aa" stroke-width="2"/>
+  <rect x="60" y="725" width="280" height="24" rx="8" fill="#00d4aa" opacity="0.15"/>
+  <text x="80" y="742" fill="#00d4aa" font-family="monospace" font-size="11" font-weight="600">7. GOVERN</text>
+  <text x="80" y="762" fill="#a1a1aa" font-family="system-ui, sans-serif" font-size="10">• Validate proposals</text>
+  <text x="80" y="778" fill="#a1a1aa" font-family="system-ui, sans-serif" font-size="10">• Apply approved changes</text>
+  <text x="80" y="794" fill="#a1a1aa" font-family="system-ui, sans-serif" font-size="10">• Log all decisions</text>
+  
+  <!-- Arrow -->
+  <path d="M200 805 L200 825 M194 819 L200 825 L206 819" stroke="#00d4aa" stroke-width="1.5" fill="none"/>
+  
+  <!-- Response (end) -->
+  <ellipse cx="200" cy="855" rx="100" ry="25" fill="#1a1f2e" stroke="#00d4aa" stroke-width="2" filter="url(#softGlow)"/>
+  <text x="200" y="860" text-anchor="middle" fill="#00d4aa" font-family="system-ui, sans-serif" font-size="12" font-weight="500">Response shown to user</text>
+  
+  <!-- Version tag -->
+  <text x="380" y="890" text-anchor="end" fill="#52525b" font-family="monospace" font-size="9">REMEMBRA v0.1</text>
+</svg>
