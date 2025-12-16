@@ -10,8 +10,6 @@ REMEMBRA treats the language model as **stateless reasoning**. The model generat
 text, but all continuity - memory, time awareness, reflection, forgetting - is
 implemented *around* the model, not inside it.
 
-> Most systems optimize recall. REMEMBRA governs continuity.
-
 ---
 
 ## Why REMEMBRA Exists
@@ -23,8 +21,10 @@ occurs, nothing happens at all.
 REMEMBRA asks a different question: What changes when an artificial agent is
 allowed to have a *past* that survives time, reflection, and absence?
 
-A persona is not defined by how it speaks. A persona is defined by what it
-carries forward when nobody is talking.
+The system also maintains a seamless, limitless conversation history - users can
+scroll from the most recent message to the very first, even across thousands of
+messages, with visual indicators showing which messages are currently in the
+AI's context window.
 
 ---
 
@@ -44,6 +44,21 @@ REMEMBRA is built on a few strict principles:
   behavior
 
 The model may suggest. The system decides.
+
+---
+
+## Key Features
+
+- **Ollama-compatible proxy**: Works with any Ollama UI, adding memory to
+  existing setups
+- **Seamless infinite history**: Complete conversation access with visual
+  context marking
+- **Governed memory**: All memory changes require Governor approval
+- **Confidence-based decay**: Memories fade naturally unless reinforced
+- **Idle thinking**: AI generates internal reflections during silence
+- **Episode compaction**: Long conversations are summarized automatically
+- **Multiple personas**: Customizable identities with different parameters
+- **Full observability**: Event log shows all system decisions in real-time
 
 ---
 
@@ -99,6 +114,16 @@ The architecture separates concerns cleanly:
 - The **Chat Engine** processes each conversation turn
 - The **Persistence Layer** stores everything durably
 - **Background Processes** run during idle time
+
+### Ollama-Compatible Proxy
+
+REMEMBRA's HTTP server exposes an Ollama-compatible chat endpoint. This means:
+
+- Any Ollama-compatible UI can connect to REMEMBRA instead of Ollama directly
+- REMEMBRA acts as a transparent proxy, forwarding requests to Ollama
+- All memory, reflection, and governance features are applied automatically
+- Users can switch LLM models mid-conversation
+- Existing Ollama setups gain memory functionality without changes to their UI
 
 ---
 
@@ -473,7 +498,7 @@ REMEMBRA includes a full web dashboard with three main panels:
 ```
 +------------------+------------------------+------------------+
 |                  |                        |                  |
-|  LEFT SIDEBAR    |    MAIN CHAT AREA     |  RIGHT SIDEBAR   |
+|  LEFT SIDEBAR    |    MAIN CHAT AREA      |  RIGHT SIDEBAR   |
 |                  |                        |                  |
 |  - Memories      |  - Conversation        |  - Context View  |
 |  - Thoughts      |  - Message input       |  - Event Log     |
@@ -490,9 +515,14 @@ REMEMBRA includes a full web dashboard with three main panels:
 
 ### Main Chat Area
 
-- Send messages and receive responses
-- View conversation history with pagination
-- Visual indicators for which messages are in the current context window
+The chat interface provides a seamless, continuous conversation view:
+
+- **Infinite scroll**: Scroll up to load older messages automatically
+- **Limitless history**: Access the complete conversation from first to last
+  message, even thousands of messages
+- **Context indicators**: Messages currently outside the LLM's context window
+  are visually marked, so you always know what the AI can "see"
+- No pagination controls - just one continuous timeline
 
 ### Right Sidebar
 
@@ -539,32 +569,12 @@ and personas.
 
 ---
 
-## Why Not Just Use a Longer Context Window?
+## Memory vs. Context
 
-A common response to the problem of AI memory is: "Just give the model a bigger
-context window." REMEMBRA deliberately takes a different approach.
-
-A long context window increases *recall*, but it does not create *memory*.
-
-| Context Window                          | REMEMBRA Memory                         |
-|-----------------------------------------|-----------------------------------------|
-| Passive - just text in a prompt         | Active - structured and scored          |
-| Does not decay                          | Decays naturally over time              |
-| Cannot resolve contradictions           | Newer facts can supersede older ones    |
-| Grows without limit                     | Curated and finite                      |
-| Can be rewritten by the next prompt     | Protected by governance                 |
-| All information treated equally         | Scored by confidence and relevance      |
-
-Context answers: "What has been said recently?"
-Memory answers: "What still matters?"
-
-Long context encourages accumulation. REMEMBRA enforces curation.
-
-Long context allows the model to reinterpret the past at will. REMEMBRA
-requires the past to be explicit and auditable.
-
-REMEMBRA uses context where it's strong (recent conversation) and memory where
-it's necessary (persistent knowledge).
+REMEMBRA uses both context (recent conversation) and memory (persistent
+knowledge). Unlike simply extending a context window, memories are structured,
+scored by confidence, decay over time, and are protected by governance. Context
+shows what was said recently; memory tracks what still matters.
 
 ---
 
@@ -647,6 +657,3 @@ REMEMBRA implements continuity through:
 8. **Multiple personas** with customizable parameters and presets
 
 The model generates text. The system maintains identity.
-
-When memory resists persuasion and time is acknowledged, identity stops being
-a performance and becomes a responsibility.
