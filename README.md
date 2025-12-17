@@ -20,6 +20,8 @@ Standard Chat Mode
 View / Edit Stored Message
 <img width="1920" height="1080" alt="Screenshot 2025-12-17 at 06 36 48" src="https://github.com/user-attachments/assets/f727ec12-b1b1-4058-90bb-16016a0fb206" />
 
+CLI (No Webserver / Chat UI)
+<img width="947" height="892" alt="image" src="https://github.com/user-attachments/assets/dd3864ff-3182-426e-9366-2a80cad70b53" />
 
 
 ## What Is This?
