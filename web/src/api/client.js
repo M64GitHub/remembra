@@ -135,3 +135,8 @@ export const systemConfig = {
   getContextWindow: () => get('/api/system/context-window'),
   setContextWindow: (value) => post('/api/system/context-window', { value }),
 };
+
+export const reflection = {
+  get: () => get('/api/system/reflection'),
+  set: (enabled) => post('/api/system/reflection', { enabled }),
+};

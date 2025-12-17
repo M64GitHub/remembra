@@ -135,6 +135,7 @@ pub const MemoryStoreSqlite = struct {
         try self.setMetaDefault("active_provider_id", "0");
         try self.setMetaDefault("active_persona_id", "0");
         try self.setMetaDefault("max_recent_messages", "24");
+        try self.setMetaDefault("reflection_enabled", "1");
         try self.seedDefaultProfiles();
         try self.seedIdentityPresets();
     }
@@ -1793,6 +1794,15 @@ pub const MemoryStoreSqlite = struct {
 
     pub fn setMaxRecentMessages(self: *MemoryStoreSqlite, count: usize) !void {
         try self.setMetaI64("max_recent_messages", @intCast(count));
+    }
+
+    pub fn getReflectionEnabled(self: *MemoryStoreSqlite) bool {
+        const val = self.getMetaI64("reflection_enabled") catch return true;
+        return val != 0;
+    }
+
+    pub fn setReflectionEnabled(self: *MemoryStoreSqlite, enabled: bool) !void {
+        try self.setMetaI64("reflection_enabled", if (enabled) 1 else 0);
     }
 };
 

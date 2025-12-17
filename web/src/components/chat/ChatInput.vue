@@ -1,5 +1,6 @@
 <script setup>
-import { ref, computed } from 'vue'
+import { ref, computed, onMounted } from 'vue'
+import { reflection } from '../../api/client.js'
 
 const props = defineProps({
   disabled: Boolean,
@@ -9,8 +10,27 @@ const emit = defineEmits(['send'])
 
 const inputText = ref('')
 const textareaRef = ref(null)
+const reflectionEnabled = ref(true)
 
 const canSend = computed(() => inputText.value.trim() && !props.disabled)
+
+onMounted(async () => {
+  try {
+    const data = await reflection.get()
+    reflectionEnabled.value = data.enabled
+  } catch (e) {
+    console.error('Failed to get reflection status:', e)
+  }
+})
+
+async function toggleReflection() {
+  try {
+    const data = await reflection.set(!reflectionEnabled.value)
+    reflectionEnabled.value = data.enabled
+  } catch (e) {
+    console.error('Failed to toggle reflection:', e)
+  }
+}
 
 function handleSend() {
   if (!canSend.value) return
@@ -36,6 +56,30 @@ function resizeTextarea() {
 <template>
   <div class="chat-input-container">
     <div class="input-wrapper">
+      <button
+        class="reflection-toggle"
+        :class="{ disabled: !reflectionEnabled }"
+        @click="toggleReflection"
+        :title="reflectionEnabled ? 'Reflection ON' : 'Reflection OFF'"
+      >
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"
+             class="reflection-logo">
+          <circle cx="50" cy="50" r="45" fill="none" stroke="currentColor"
+                  stroke-width="2.0"/>
+          <g transform="translate(7, 0)">
+            <rect x="22" y="38" width="6" height="28" rx="1"
+                  fill="currentColor"/>
+            <path d="M26 44 Q28 38 34 38 Q42 38 42 46" stroke="currentColor"
+                  stroke-width="5" fill="none" stroke-linecap="round"/>
+          </g>
+          <g transform="translate(71, 48) scale(-0.7, 0.7)">
+            <rect x="0" y="0" width="5" height="24" rx="1" fill="currentColor"/>
+            <path d="M4 5 Q5 0 10 0 Q17 0 17 7" stroke="currentColor"
+                  stroke-width="4" fill="none" stroke-linecap="round"/>
+          </g>
+        </svg>
+      </button>
+
       <textarea
         ref="textareaRef"
         v-model="inputText"
@@ -53,7 +97,7 @@ function resizeTextarea() {
         class="send-btn"
         title="Send message"
       >
-        <span class="send-icon">&#x27A4;</span>
+        <span class="send-icon">&#x25B6;</span>
       </button>
     </div>
 
@@ -169,5 +213,39 @@ kbd {
   border-radius: var(--border-radius-sm);
   font-family: var(--font-mono);
   font-size: var(--text-xs);
+}
+
+.reflection-toggle {
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  transition: all var(--transition-fast);
+  align-self: center;
+  color: #667eea;
+}
+
+.reflection-logo {
+  width: 100%;
+  height: 100%;
+}
+
+.reflection-toggle:hover {
+  filter: brightness(1.2);
+  transform: scale(1.1);
+}
+
+.reflection-toggle.disabled {
+  color: var(--text-dim);
+  opacity: 0.6;
+}
+
+.reflection-toggle.disabled:hover {
+  filter: brightness(1.1);
 }
 </style>

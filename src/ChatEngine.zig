@@ -71,7 +71,9 @@ pub fn processAndReturn(
     errdefer allocator.free(resp.content);
     errdefer if (resp.thinking) |t| allocator.free(t);
 
-    try runReflection(allocator, app, pid, &ctx, resp.content, allow_ops);
+    if (app.reflection_enabled) {
+        try runReflection(allocator, app, pid, &ctx, resp.content, allow_ops);
+    }
 
     return resp;
 }

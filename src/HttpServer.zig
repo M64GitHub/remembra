@@ -230,6 +230,14 @@ fn handleRequest(
         std.mem.eql(u8, target, "/api/system/context-window"))
     {
         try handlePostContextWindow(allocator, app, request);
+    } else if (method == .GET and
+        std.mem.eql(u8, target, "/api/system/reflection"))
+    {
+        try handleGetReflection(app, request);
+    } else if (method == .POST and
+        std.mem.eql(u8, target, "/api/system/reflection"))
+    {
+        try handlePostReflection(allocator, app, request);
     } else if (method == .GET) {
         try handleStaticFile(allocator, request);
     } else {
@@ -1005,6 +1013,84 @@ fn handleGetContext(
 
     const json = try out.toOwnedSlice(allocator);
     defer allocator.free(json);
+
+    try respondJson(request, json);
+}
+
+fn handleGetReflection(
+    app: *App,
+    request: *std.http.Server.Request,
+) !void {
+    var buf: [32]u8 = undefined;
+    const json = std.fmt.bufPrint(
+        &buf,
+        "{{\"enabled\":{s}}}",
+        .{if (app.reflection_enabled) "true" else "false"},
+    ) catch return respondError(request, .internal_server_error, "Format error");
+
+    try respondJson(request, json);
+}
+
+fn handlePostReflection(
+    allocator: std.mem.Allocator,
+    app: *App,
+    request: *std.http.Server.Request,
+) !void {
+    const content_len = request.head.content_length orelse {
+        try respondError(request, .bad_request, "Missing Content-Length");
+        return;
+    };
+
+    if (content_len > READ_BUFFER_SIZE) {
+        try respondError(request, .payload_too_large, "Payload too large");
+        return;
+    }
+
+    var body_buf: [READ_BUFFER_SIZE]u8 = undefined;
+    const body_reader = request.readerExpectNone(&body_buf);
+
+    const body = body_reader.readAlloc(allocator, @intCast(content_len)) catch {
+        try respondError(request, .bad_request, "Failed to read body");
+        return;
+    };
+    defer allocator.free(body);
+
+    var parsed = std.json.parseFromSlice(
+        std.json.Value,
+        allocator,
+        body,
+        .{},
+    ) catch {
+        try respondError(request, .bad_request, "Invalid JSON");
+        return;
+    };
+    defer parsed.deinit();
+
+    const root = parsed.value.object;
+    const enabled_node = root.get("enabled") orelse {
+        try respondError(request, .bad_request, "Missing 'enabled' field");
+        return;
+    };
+
+    const enabled: bool = switch (enabled_node) {
+        .bool => |b| b,
+        else => {
+            try respondError(request, .bad_request, "'enabled' must be boolean");
+            return;
+        },
+    };
+
+    app.setReflectionEnabled(enabled) catch {
+        try respondError(request, .internal_server_error, "Failed to save");
+        return;
+    };
+
+    var buf: [32]u8 = undefined;
+    const json = std.fmt.bufPrint(
+        &buf,
+        "{{\"enabled\":{s}}}",
+        .{if (app.reflection_enabled) "true" else "false"},
+    ) catch return respondError(request, .internal_server_error, "Format error");
 
     try respondJson(request, json);
 }

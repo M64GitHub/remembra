@@ -32,6 +32,7 @@ pub const App = struct {
     sys: ConfigSys,
     ident: ConfigIdent,
     max_recent_messages: usize = 24,
+    reflection_enabled: bool = true,
     last_context: LastContext = .{},
     last_context_prompt_buf: [32768]u8 = undefined,
 
@@ -73,6 +74,7 @@ pub const App = struct {
         cli.msg(.ok, "SQLite store: {s}", .{conn.database_path});
 
         const max_recent = store.getMaxRecentMessages();
+        const reflection = store.getReflectionEnabled();
 
         return App{
             .cli = cli,
@@ -83,6 +85,7 @@ pub const App = struct {
             .sys = sys,
             .ident = ident,
             .max_recent_messages = max_recent,
+            .reflection_enabled = reflection,
         };
     }
 
@@ -93,6 +96,11 @@ pub const App = struct {
     pub fn setMaxRecentMessages(self: *App, count: usize) !void {
         try self.store.setMaxRecentMessages(count);
         self.max_recent_messages = count;
+    }
+
+    pub fn setReflectionEnabled(self: *App, enabled: bool) !void {
+        try self.store.setReflectionEnabled(enabled);
+        self.reflection_enabled = enabled;
     }
 
     pub fn deinit(self: *App, allocator: std.mem.Allocator) void {
