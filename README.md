@@ -30,6 +30,10 @@ It is designed to be useful even without any AI memory features enabled.
 When Reflection Mode is turned off, REMEMBRA behaves like a powerful, modern chat interface.
 When Reflection Mode is enabled, an experimental memory system is activated that allows the AI to develop persistence across sessions.
 
+## Origins
+
+I started REMEMBRA as an experiment to explore memory, "reflection", a "sense" of time, and persistent persona-like behavior in local LLM systems. To run those experiments, I needed a transparent and controllable chat interface. Over time, that interface became useful in its own right, and REMEMBRA intentionally evolved into both: a practical chat workspace and an optional environment for studying memory-aware, reflective system behavior.
+
 ## Who Is This For?
 
 **If you just want a good chat client**
