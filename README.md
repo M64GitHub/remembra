@@ -4,9 +4,9 @@
 
 *A local chat workspace that remembers what matters.*
 
-REMEMBRA is a local-first chat workspace for Ollama.
+REMEMBRA is a local-first chat interface for Ollama.
 
-At its core, it is a fast, beautiful chat client with unlimited history, bookmarks, and an editable message store.
+At its core, it is a fast, beautiful chat client with unlimited history, bookmarks, and an editable message store.  
 Optionally, it can be switched into **Reflection Mode**, where the AI is allowed to reflect, remember, and develop continuity over time.
 
 You decide when REMEMBRA is just chatting — and when it is thinking.
