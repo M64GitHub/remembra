@@ -75,15 +75,35 @@ function saveSidebarState() {
       >
         <div class="sidebar-mode-toggle">
           <button
-            class="mode-btn"
+            class="mode-tab"
+            :class="{ active: leftSidebarMode === 'memory' }"
             @click="setLeftSidebarMode('memory')"
-            v-if="leftSidebarMode !== 'memory'"
-          >Memory</button>
+            title="AI Mind"
+          >
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"
+                 class="remembra-icon">
+              <circle cx="50" cy="50" r="45" fill="none" stroke="currentColor"
+                      stroke-width="2.0"/>
+              <g transform="translate(7, 0)">
+                <rect x="22" y="38" width="6" height="28" rx="1"
+                      fill="currentColor"/>
+                <path d="M26 44 Q28 38 34 38 Q42 38 42 46" stroke="currentColor"
+                      stroke-width="5" fill="none" stroke-linecap="round"/>
+              </g>
+              <g transform="translate(71, 48) scale(-0.7, 0.7)">
+                <rect x="0" y="0" width="5" height="24" rx="1"
+                      fill="currentColor"/>
+                <path d="M4 5 Q5 0 10 0 Q17 0 17 7" stroke="currentColor"
+                      stroke-width="4" fill="none" stroke-linecap="round"/>
+              </g>
+            </svg>
+          </button>
           <button
-            class="mode-btn"
+            class="mode-tab"
+            :class="{ active: leftSidebarMode === 'store' }"
             @click="setLeftSidebarMode('store')"
-            v-if="leftSidebarMode !== 'store'"
-          >Store</button>
+            title="Saved Items"
+          >★</button>
         </div>
 
         <template v-if="leftSidebarMode === 'memory'">
@@ -102,7 +122,7 @@ function saveSidebarState() {
           <Panel title="Store" icon="memory" :default-open="true">
             <StorePane />
           </Panel>
-          <Panel title="Bookmarks" icon="context" :default-open="true">
+          <Panel title="Bookmarks" icon="star" :default-open="true">
             <BookmarksPane @jump-to="scrollToMessage" />
           </Panel>
         </template>
@@ -170,26 +190,30 @@ function saveSidebarState() {
   gap: var(--space-xs);
 }
 
-.mode-btn {
-  font-size: var(--text-xs);
-  padding: var(--space-xs) var(--space-sm);
+.mode-tab {
+  padding: var(--space-xs);
   border-radius: var(--border-radius-sm);
-  color: var(--text-muted);
-  background: var(--bg-secondary);
-  border: var(--border-subtle);
+  color: var(--text-dim);
+  background: transparent;
+  border: none;
   cursor: pointer;
   transition: all var(--transition-fast);
-  flex: 1;
+  font-size: 16px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
 }
 
-.mode-btn:hover {
-  background: var(--bg-hover);
-  color: var(--text-primary);
+.mode-tab:hover {
+  color: var(--text-secondary);
 }
 
-.mode-btn.active {
-  background: var(--accent-primary);
-  color: white;
-  border-color: var(--accent-primary);
+.mode-tab.active {
+  color: var(--accent-primary);
+}
+
+.remembra-icon {
+  width: 18px;
+  height: 18px;
 }
 </style>
