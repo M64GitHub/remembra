@@ -4,7 +4,13 @@
 
 A local AI chat interface for Ollama with experimental persistent memory.
 
-<img width="1920" alt="REMEMBRA Interface" src="https://github.com/user-attachments/assets/d85af955-d9f4-43e4-80eb-84d37e82e4bc" />
+<img width="1920" height="1080" alt="Screenshot 2025-12-17 at 06 33 18" src="https://github.com/user-attachments/assets/a02e4a5c-8c24-440f-b966-2d036dfa0186" />
+
+<img width="1920" height="1080" alt="Screenshot 2025-12-17 at 06 34 09" src="https://github.com/user-attachments/assets/29e58553-61e6-4849-b307-a26d9cf6f00b" />
+
+<img width="1920" height="1080" alt="Screenshot 2025-12-17 at 06 34 23" src="https://github.com/user-attachments/assets/f22cf2b6-a825-4b67-ac2c-bec7dfaf8672" />
+
+
 
 ## What Is This?
 
