@@ -7,7 +7,34 @@ export const appState = reactive({
   activeAiName: '...',
   activePersonaId: null,
   maxRecentMessages: 24,
+  leftSidebarMode: 'memory',
+  selectedMessageIds: new Set(),
+  bookmarkedMessageIds: new Set(),
 })
+
+export function toggleMessageSelection(msgId) {
+  if (appState.selectedMessageIds.has(msgId)) {
+    appState.selectedMessageIds.delete(msgId)
+  } else {
+    appState.selectedMessageIds.add(msgId)
+  }
+}
+
+export function clearSelection() {
+  appState.selectedMessageIds.clear()
+}
+
+export function setBookmarkedIds(ids) {
+  appState.bookmarkedMessageIds = new Set(ids)
+}
+
+export function addBookmarkedId(id) {
+  appState.bookmarkedMessageIds.add(id)
+}
+
+export function removeBookmarkedId(id) {
+  appState.bookmarkedMessageIds.delete(id)
+}
 
 // Reload callback registry for sequential persona change reloads
 const reloadCallbacks = []

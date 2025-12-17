@@ -110,6 +110,28 @@ pub const SCHEMA =
     \\    text          TEXT NOT NULL,
     \\    created_at_ms INTEGER NOT NULL
     \\);
+    \\
+    \\CREATE TABLE IF NOT EXISTS store_items (
+    \\    id            INTEGER PRIMARY KEY AUTOINCREMENT,
+    \\    persona_id    INTEGER NOT NULL,
+    \\    content       TEXT NOT NULL,
+    \\    source_msg_id INTEGER,
+    \\    created_at_ms INTEGER NOT NULL,
+    \\    updated_at_ms INTEGER NOT NULL
+    \\);
+    \\
+    \\CREATE TABLE IF NOT EXISTS bookmarks (
+    \\    id            INTEGER PRIMARY KEY AUTOINCREMENT,
+    \\    persona_id    INTEGER NOT NULL,
+    \\    message_id    INTEGER NOT NULL,
+    \\    created_at_ms INTEGER NOT NULL,
+    \\    UNIQUE(persona_id, message_id)
+    \\);
+    \\
+    \\CREATE INDEX IF NOT EXISTS idx_store_persona
+    \\    ON store_items(persona_id, id);
+    \\CREATE INDEX IF NOT EXISTS idx_bookmarks_persona
+    \\    ON bookmarks(persona_id, message_id);
 ;
 
 pub const MemoryStoreSqlite = struct {
@@ -1803,6 +1825,293 @@ pub const MemoryStoreSqlite = struct {
 
     pub fn setReflectionEnabled(self: *MemoryStoreSqlite, enabled: bool) !void {
         try self.setMetaI64("reflection_enabled", if (enabled) 1 else 0);
+    }
+
+    // Store Items CRUD
+
+    pub fn createStoreItem(
+        self: *MemoryStoreSqlite,
+        persona_id: i64,
+        content: []const u8,
+        source_msg_id: ?i64,
+    ) !i64 {
+        const now = self.nowMs();
+
+        const stmt = try self.db.prepare(
+            "INSERT INTO store_items(persona_id, content, source_msg_id, " ++
+                "created_at_ms, updated_at_ms) VALUES(?, ?, ?, ?, ?);",
+        );
+        defer sqlite.finalize(stmt);
+
+        sqlite.bindInt64(stmt, 1, persona_id);
+        sqlite.bindText(stmt, 2, content);
+        if (source_msg_id) |mid| {
+            sqlite.bindInt64(stmt, 3, mid);
+        } else {
+            sqlite.bindNull(stmt, 3);
+        }
+        sqlite.bindInt64(stmt, 4, now);
+        sqlite.bindInt64(stmt, 5, now);
+
+        if (sqlite.step(stmt) != c.SQLITE_DONE) {
+            return error.SqliteStepFailed;
+        }
+
+        return self.db.lastInsertRowId();
+    }
+
+    pub fn updateStoreItem(
+        self: *MemoryStoreSqlite,
+        persona_id: i64,
+        id: i64,
+        content: []const u8,
+    ) !void {
+        const now = self.nowMs();
+
+        const stmt = try self.db.prepare(
+            "UPDATE store_items SET content=?, updated_at_ms=? " ++
+                "WHERE id=? AND persona_id=?;",
+        );
+        defer sqlite.finalize(stmt);
+
+        sqlite.bindText(stmt, 1, content);
+        sqlite.bindInt64(stmt, 2, now);
+        sqlite.bindInt64(stmt, 3, id);
+        sqlite.bindInt64(stmt, 4, persona_id);
+
+        if (sqlite.step(stmt) != c.SQLITE_DONE) {
+            return error.SqliteStepFailed;
+        }
+    }
+
+    pub fn deleteStoreItem(
+        self: *MemoryStoreSqlite,
+        persona_id: i64,
+        id: i64,
+    ) !void {
+        const stmt = try self.db.prepare(
+            "DELETE FROM store_items WHERE id=? AND persona_id=?;",
+        );
+        defer sqlite.finalize(stmt);
+
+        sqlite.bindInt64(stmt, 1, id);
+        sqlite.bindInt64(stmt, 2, persona_id);
+
+        if (sqlite.step(stmt) != c.SQLITE_DONE) {
+            return error.SqliteStepFailed;
+        }
+    }
+
+    pub fn loadStoreItems(
+        self: *MemoryStoreSqlite,
+        allocator: std.mem.Allocator,
+        persona_id: i64,
+    ) ![]Types.StoreItem {
+        const stmt = try self.db.prepare(
+            "SELECT id, content, source_msg_id, created_at_ms, updated_at_ms " ++
+                "FROM store_items WHERE persona_id=? ORDER BY updated_at_ms DESC;",
+        );
+        defer sqlite.finalize(stmt);
+
+        sqlite.bindInt64(stmt, 1, persona_id);
+
+        var out: std.ArrayList(Types.StoreItem) = .empty;
+        errdefer {
+            for (out.items) |item| {
+                allocator.free(@constCast(item.content));
+            }
+            out.deinit(allocator);
+        }
+
+        while (sqlite.step(stmt) == c.SQLITE_ROW) {
+            const src_id = sqlite.columnInt64(stmt, 2);
+            try out.append(allocator, .{
+                .id = sqlite.columnInt64(stmt, 0),
+                .content = try allocator.dupe(u8, sqlite.columnText(stmt, 1)),
+                .source_msg_id = if (src_id == 0) null else src_id,
+                .created_at_ms = sqlite.columnInt64(stmt, 3),
+                .updated_at_ms = sqlite.columnInt64(stmt, 4),
+            });
+        }
+
+        return out.toOwnedSlice(allocator);
+    }
+
+    pub fn getStoreItem(
+        self: *MemoryStoreSqlite,
+        allocator: std.mem.Allocator,
+        persona_id: i64,
+        id: i64,
+    ) !?Types.StoreItem {
+        const stmt = try self.db.prepare(
+            "SELECT id, content, source_msg_id, created_at_ms, updated_at_ms " ++
+                "FROM store_items WHERE id=? AND persona_id=?;",
+        );
+        defer sqlite.finalize(stmt);
+
+        sqlite.bindInt64(stmt, 1, id);
+        sqlite.bindInt64(stmt, 2, persona_id);
+
+        if (sqlite.step(stmt) != c.SQLITE_ROW) return null;
+
+        const src_id = sqlite.columnInt64(stmt, 2);
+        return .{
+            .id = sqlite.columnInt64(stmt, 0),
+            .content = try allocator.dupe(u8, sqlite.columnText(stmt, 1)),
+            .source_msg_id = if (src_id == 0) null else src_id,
+            .created_at_ms = sqlite.columnInt64(stmt, 3),
+            .updated_at_ms = sqlite.columnInt64(stmt, 4),
+        };
+    }
+
+    // Bookmarks CRUD
+
+    pub fn createBookmark(
+        self: *MemoryStoreSqlite,
+        persona_id: i64,
+        message_id: i64,
+    ) !i64 {
+        const now = self.nowMs();
+
+        const stmt = try self.db.prepare(
+            "INSERT OR IGNORE INTO bookmarks(persona_id, message_id, " ++
+                "created_at_ms) VALUES(?, ?, ?);",
+        );
+        defer sqlite.finalize(stmt);
+
+        sqlite.bindInt64(stmt, 1, persona_id);
+        sqlite.bindInt64(stmt, 2, message_id);
+        sqlite.bindInt64(stmt, 3, now);
+
+        if (sqlite.step(stmt) != c.SQLITE_DONE) {
+            return error.SqliteStepFailed;
+        }
+
+        const row_id = self.db.lastInsertRowId();
+        if (row_id == 0) {
+            const existing = try self.getBookmarkByMessageId(persona_id, message_id);
+            if (existing) |bm| return bm.id;
+        }
+        return row_id;
+    }
+
+    pub fn deleteBookmark(
+        self: *MemoryStoreSqlite,
+        persona_id: i64,
+        id: i64,
+    ) !void {
+        const stmt = try self.db.prepare(
+            "DELETE FROM bookmarks WHERE id=? AND persona_id=?;",
+        );
+        defer sqlite.finalize(stmt);
+
+        sqlite.bindInt64(stmt, 1, id);
+        sqlite.bindInt64(stmt, 2, persona_id);
+
+        if (sqlite.step(stmt) != c.SQLITE_DONE) {
+            return error.SqliteStepFailed;
+        }
+    }
+
+    pub fn deleteBookmarkByMessageId(
+        self: *MemoryStoreSqlite,
+        persona_id: i64,
+        message_id: i64,
+    ) !void {
+        const stmt = try self.db.prepare(
+            "DELETE FROM bookmarks WHERE message_id=? AND persona_id=?;",
+        );
+        defer sqlite.finalize(stmt);
+
+        sqlite.bindInt64(stmt, 1, message_id);
+        sqlite.bindInt64(stmt, 2, persona_id);
+
+        if (sqlite.step(stmt) != c.SQLITE_DONE) {
+            return error.SqliteStepFailed;
+        }
+    }
+
+    pub fn loadBookmarks(
+        self: *MemoryStoreSqlite,
+        allocator: std.mem.Allocator,
+        persona_id: i64,
+    ) ![]Types.Bookmark {
+        const stmt = try self.db.prepare(
+            "SELECT id, message_id, created_at_ms FROM bookmarks " ++
+                "WHERE persona_id=? ORDER BY created_at_ms DESC;",
+        );
+        defer sqlite.finalize(stmt);
+
+        sqlite.bindInt64(stmt, 1, persona_id);
+
+        var out: std.ArrayList(Types.Bookmark) = .empty;
+        errdefer out.deinit(allocator);
+
+        while (sqlite.step(stmt) == c.SQLITE_ROW) {
+            try out.append(allocator, .{
+                .id = sqlite.columnInt64(stmt, 0),
+                .message_id = sqlite.columnInt64(stmt, 1),
+                .created_at_ms = sqlite.columnInt64(stmt, 2),
+            });
+        }
+
+        return out.toOwnedSlice(allocator);
+    }
+
+    pub fn getBookmarkByMessageId(
+        self: *MemoryStoreSqlite,
+        persona_id: i64,
+        message_id: i64,
+    ) !?Types.Bookmark {
+        const stmt = try self.db.prepare(
+            "SELECT id, message_id, created_at_ms FROM bookmarks " ++
+                "WHERE persona_id=? AND message_id=?;",
+        );
+        defer sqlite.finalize(stmt);
+
+        sqlite.bindInt64(stmt, 1, persona_id);
+        sqlite.bindInt64(stmt, 2, message_id);
+
+        if (sqlite.step(stmt) != c.SQLITE_ROW) return null;
+
+        return .{
+            .id = sqlite.columnInt64(stmt, 0),
+            .message_id = sqlite.columnInt64(stmt, 1),
+            .created_at_ms = sqlite.columnInt64(stmt, 2),
+        };
+    }
+
+    pub fn isMessageBookmarked(
+        self: *MemoryStoreSqlite,
+        persona_id: i64,
+        message_id: i64,
+    ) bool {
+        const bm = self.getBookmarkByMessageId(persona_id, message_id) catch {
+            return false;
+        };
+        return bm != null;
+    }
+
+    pub fn loadBookmarkedMessageIds(
+        self: *MemoryStoreSqlite,
+        allocator: std.mem.Allocator,
+        persona_id: i64,
+    ) ![]i64 {
+        const stmt = try self.db.prepare(
+            "SELECT message_id FROM bookmarks WHERE persona_id=?;",
+        );
+        defer sqlite.finalize(stmt);
+
+        sqlite.bindInt64(stmt, 1, persona_id);
+
+        var out: std.ArrayList(i64) = .empty;
+        errdefer out.deinit(allocator);
+
+        while (sqlite.step(stmt) == c.SQLITE_ROW) {
+            try out.append(allocator, sqlite.columnInt64(stmt, 0));
+        }
+
+        return out.toOwnedSlice(allocator);
     }
 };
 

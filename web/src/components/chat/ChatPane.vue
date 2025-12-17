@@ -1,15 +1,30 @@
 <script setup>
 import { ref, onMounted, onUnmounted, nextTick } from 'vue'
-import { chat, command } from '../../api/client.js'
-import { appState, registerReload, reloadAllData } from '../../stores/appState.js'
+import { chat, command, bookmarks } from '../../api/client.js'
+import {
+  appState,
+  registerReload,
+  reloadAllData,
+  setBookmarkedIds,
+} from '../../stores/appState.js'
 import MessageList from './MessageList.vue'
 import ChatInput from './ChatInput.vue'
+import FloatingActions from './FloatingActions.vue'
 
 const messages = ref([])
 const isLoading = ref(false)
 const isSending = ref(false)
 const hasMore = ref(true)
 const error = ref(null)
+
+async function loadBookmarks() {
+  try {
+    const data = await bookmarks.list()
+    setBookmarkedIds(data.bookmarked_ids || [])
+  } catch (e) {
+    console.error('Failed to load bookmarks:', e)
+  }
+}
 
 async function loadMessages(before = null) {
   if (isLoading.value || (!hasMore.value && before)) return
@@ -146,12 +161,14 @@ let unregisterReload = null
 
 onMounted(() => {
   loadMessages()
+  loadBookmarks()
 
   // Register for persona change reloads
   unregisterReload = registerReload('chat', async () => {
     messages.value = []
     hasMore.value = true
     await loadMessages()
+    await loadBookmarks()
   })
 })
 
@@ -181,6 +198,8 @@ onUnmounted(() => {
       :disabled="isSending"
       @send="sendMessage"
     />
+
+    <FloatingActions :messages="messages" />
   </div>
 </template>
 

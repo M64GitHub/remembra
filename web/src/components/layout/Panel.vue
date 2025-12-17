@@ -23,6 +23,7 @@ const iconMap = {
   thoughts: '\u{25C7}',
   profiles: 'P',
   context: '\u{25CB}',
+  star: '\u{2606}',
 }
 
 function toggle() {

@@ -1,6 +1,12 @@
 <script setup>
 import { computed, ref, onMounted, onUnmounted } from 'vue'
-import { appState } from '../../stores/appState.js'
+import {
+  appState,
+  toggleMessageSelection,
+  addBookmarkedId,
+  removeBookmarkedId,
+} from '../../stores/appState.js'
+import { bookmarks } from '../../api/client.js'
 import { useMarkdown } from '../../composables/useMarkdown.js'
 
 const { renderMarkdown } = useMarkdown()
@@ -16,6 +22,8 @@ const props = defineProps({
   },
 })
 
+const emit = defineEmits(['bookmark-changed'])
+
 const showTimestamp = ref(false)
 const showThinking = ref(false)
 const copied = ref(false)
@@ -25,6 +33,35 @@ const mdEnabled = ref(true)
 const isUser = computed(() => props.message.role === 'user')
 const isSystem = computed(() => props.message.role === 'system')
 const isAssistant = computed(() => !isUser.value && !isSystem.value)
+
+const isSelected = computed(() =>
+  appState.selectedMessageIds.has(props.message.id)
+)
+
+const isBookmarked = computed(() =>
+  appState.bookmarkedMessageIds.has(props.message.id)
+)
+
+function handleSelectionClick(event) {
+  event.stopPropagation()
+  toggleMessageSelection(props.message.id)
+}
+
+async function toggleBookmark(event) {
+  event.stopPropagation()
+  try {
+    if (isBookmarked.value) {
+      await bookmarks.removeByMessage(props.message.id)
+      removeBookmarkedId(props.message.id)
+    } else {
+      await bookmarks.createSingle(props.message.id)
+      addBookmarkedId(props.message.id)
+    }
+    emit('bookmark-changed')
+  } catch (e) {
+    console.error('Bookmark toggle failed:', e)
+  }
+}
 
 const renderedContent = computed(() => {
   if (!isSystem.value) {
@@ -136,39 +173,82 @@ onUnmounted(() => {
 </script>
 
 <template>
-  <div
-    ref="bubbleRef"
-    class="message-bubble"
-    :class="{
-      user: isUser,
-      assistant: isAssistant,
-      system: isSystem,
-      pending: message.pending,
-      error: message.error,
-      'out-of-context': !inContext,
-    }"
-    @click="showTimestamp = !showTimestamp"
-  >
-    <div class="message-header" v-if="!isUser">
-      <span class="message-role">{{ isSystem ? 'SYSTEM' : appState.activeAiName }}</span>
-      <button
-        v-if="isAssistant"
-        class="md-toggle"
-        :class="{ disabled: !mdEnabled }"
-        @click="toggleMarkdown"
-        :title="mdEnabled ? 'Disable markdown' : 'Enable markdown'"
-      >md</button>
-      <span class="context-indicator" v-if="inContext" title="In context window">&#x25CB;</span>
-    </div>
-    <div class="message-header user-header" v-else>
-      <button
-        class="md-toggle"
-        :class="{ disabled: !mdEnabled }"
-        @click="toggleMarkdown"
-        :title="mdEnabled ? 'Disable markdown' : 'Enable markdown'"
-      >md</button>
-      <span class="context-indicator" v-if="inContext" title="In context window">&#x25CB;</span>
-    </div>
+  <div class="message-row" :class="{ selected: isSelected, user: isUser }">
+    <!-- Selection circle -->
+    <button
+      v-if="!isSystem"
+      class="selection-circle"
+      :class="{ filled: isSelected }"
+      @click="handleSelectionClick"
+      title="Select message"
+    >
+      <span v-if="isSelected">&#x2713;</span>
+    </button>
+    <div v-else class="selection-spacer"></div>
+
+    <div
+      ref="bubbleRef"
+      class="message-bubble"
+      :class="{
+        user: isUser,
+        assistant: isAssistant,
+        system: isSystem,
+        pending: message.pending,
+        error: message.error,
+        'out-of-context': !inContext,
+        bookmarked: isBookmarked,
+      }"
+      :data-message-id="message.id"
+      @click="showTimestamp = !showTimestamp"
+    >
+      <!-- Assistant/System header -->
+      <div class="message-header" v-if="!isUser">
+        <span class="message-role">
+          {{ isSystem ? 'SYSTEM' : appState.activeAiName }}
+        </span>
+        <div class="header-center" v-if="!isSystem">
+          <button
+            class="md-toggle"
+            :class="{ disabled: !mdEnabled }"
+            @click="toggleMarkdown"
+            :title="mdEnabled ? 'Disable markdown' : 'Enable markdown'"
+          >md</button>
+          <button
+            class="bookmark-btn"
+            :class="{ active: isBookmarked }"
+            @click="toggleBookmark"
+            :title="isBookmarked ? 'Remove bookmark' : 'Add bookmark'"
+          >{{ isBookmarked ? '★' : '☆' }}</button>
+        </div>
+        <span
+          class="context-indicator"
+          v-if="inContext && !isSystem"
+          title="In context window"
+        >&#x25CB;</span>
+      </div>
+      <!-- User header -->
+      <div class="message-header user-header" v-if="isUser">
+        <span class="header-spacer"></span>
+        <div class="header-center">
+          <button
+            class="md-toggle"
+            :class="{ disabled: !mdEnabled }"
+            @click="toggleMarkdown"
+            :title="mdEnabled ? 'Disable markdown' : 'Enable markdown'"
+          >md</button>
+          <button
+            class="bookmark-btn"
+            :class="{ active: isBookmarked }"
+            @click="toggleBookmark"
+            :title="isBookmarked ? 'Remove bookmark' : 'Add bookmark'"
+          >{{ isBookmarked ? '★' : '☆' }}</button>
+        </div>
+        <span
+          class="context-indicator"
+          v-if="inContext"
+          title="In context window"
+        >&#x25CB;</span>
+      </div>
 
     <!-- Markdown rendered content for user and assistant -->
     <div
@@ -208,6 +288,7 @@ onUnmounted(() => {
       >
         {{ copied ? '&#x2713;' : '&#x29C9;' }}
       </button>
+    </div>
     </div>
   </div>
 </template>
@@ -272,15 +353,33 @@ onUnmounted(() => {
 }
 
 .message-header {
-  display: flex;
+  display: grid;
+  grid-template-columns: 1fr auto 1fr;
   align-items: center;
-  justify-content: space-between;
   margin-bottom: var(--space-xs);
 }
 
 .message-header.user-header {
-  justify-content: flex-end;
   margin-bottom: 0;
+}
+
+.message-header .message-role {
+  justify-self: start;
+}
+
+.header-center {
+  display: flex;
+  align-items: center;
+  gap: var(--space-xs);
+  justify-self: center;
+}
+
+.message-header .context-indicator {
+  justify-self: end;
+}
+
+.header-spacer {
+  /* Empty spacer for left column in user messages */
 }
 
 .context-indicator {
@@ -447,5 +546,106 @@ onUnmounted(() => {
 .user .md-toggle.disabled {
   color: var(--warning);
   border-color: var(--warning);
+}
+
+.message-row {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-sm);
+  width: 100%;
+}
+
+.message-row.user {
+  flex-direction: row-reverse;
+}
+
+.message-row.selected .message-bubble {
+  outline: 2px solid var(--accent-primary);
+  outline-offset: 2px;
+}
+
+.selection-circle {
+  width: 20px;
+  height: 20px;
+  min-width: 20px;
+  border-radius: 50%;
+  border: 2px solid var(--text-dim);
+  background: transparent;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: all var(--transition-fast);
+  margin-top: var(--space-md);
+  font-size: 10px;
+}
+
+.selection-circle:hover {
+  border-color: var(--accent-primary);
+}
+
+.selection-circle.filled {
+  background: var(--accent-primary);
+  border-color: var(--accent-primary);
+  color: white;
+}
+
+.selection-spacer {
+  width: 20px;
+  min-width: 20px;
+}
+
+
+.bookmark-btn {
+  font-size: 14px;
+  padding: 2px 4px;
+  border-radius: var(--border-radius-sm);
+  color: var(--text-dim);
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  opacity: 0;
+  transition: all var(--transition-fast);
+}
+
+.message-bubble:hover .bookmark-btn,
+.bookmark-btn.active {
+  opacity: 1;
+}
+
+.bookmark-btn:hover {
+  color: var(--accent-primary);
+  transform: scale(1.1);
+}
+
+.bookmark-btn.active {
+  color: var(--accent-primary);
+}
+
+.user .bookmark-btn {
+  color: rgba(255, 255, 255, 0.6);
+}
+
+.user .bookmark-btn:hover,
+.user .bookmark-btn.active {
+  color: white;
+}
+
+.message-bubble.bookmarked {
+  border-left: 3px solid var(--accent-primary);
+}
+
+.message-bubble.user.bookmarked {
+  border-right: 3px solid white;
+  border-left: none;
+}
+
+@keyframes highlight-flash {
+  0% { background-color: var(--accent-primary); opacity: 0.3; }
+  100% { background-color: transparent; opacity: 1; }
+}
+
+.message-bubble.highlight-flash {
+  animation: highlight-flash 2s ease-out;
 }
 </style>

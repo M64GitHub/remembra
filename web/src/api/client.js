@@ -140,3 +140,19 @@ export const reflection = {
   get: () => get('/api/system/reflection'),
   set: (enabled) => post('/api/system/reflection', { enabled }),
 };
+
+export const store = {
+  list: () => get('/api/store'),
+  create: (content, sourceMsgId = null) =>
+    post('/api/store', { content, source_msg_id: sourceMsgId }),
+  update: (id, content) => post(`/api/store/${id}`, { content }),
+  remove: (id) => del(`/api/store/${id}`),
+};
+
+export const bookmarks = {
+  list: () => get('/api/bookmarks'),
+  create: (messageIds) => post('/api/bookmarks', { message_ids: messageIds }),
+  createSingle: (messageId) => post('/api/bookmarks', { message_id: messageId }),
+  remove: (id) => del(`/api/bookmarks/${id}`),
+  removeByMessage: (msgId) => del(`/api/bookmarks/msg/${msgId}`),
+};
