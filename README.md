@@ -2,7 +2,15 @@
 
 # REMEMBRA
 
-A local AI chat interface for Ollama with experimental persistent memory.
+*A local chat workspace that remembers what matters.*
+
+REMEMBRA is a local-first chat workspace for Ollama.
+
+At its core, it is a fast, beautiful chat client with unlimited history, bookmarks, and an editable message store.
+Optionally, it can be switched into **Reflection Mode**, where the AI is allowed to reflect, remember, and develop continuity over time.
+
+You decide when REMEMBRA is just chatting — and when it is thinking.
+
 
 Chat (Reflection Enabled)
 <img width="1920" height="1080" alt="Screenshot 2025-12-17 at 06 33 18" src="https://github.com/user-attachments/assets/a02e4a5c-8c24-440f-b966-2d036dfa0186" />
@@ -17,9 +25,39 @@ View / Edit Stored Message
 
 ## What Is This?
 
-REMEMBRA is a chat client for local LLMs that runs entirely on your machine. It connects to Ollama and provides: multiple personas with custom system prompts, unlimited scrollable conversation history, message bookmarks, a store for saving and editing message copies, and real-time visibility into system events.
+REMEMBRA is a chat client for local LLMs that runs entirely on your machine.
+It is designed to be useful even without any AI memory features enabled.
 
-Optionally, enable **Reflection Mode** - an experimental feature where the AI reflects after each response, proposes memories to store, and develops persistent context that decays over time. This explores what happens when an AI is allowed to have a past that survives sessions.
+When Reflection Mode is turned off, REMEMBRA behaves like a powerful, modern chat interface.
+When Reflection Mode is enabled, an experimental memory system is activated that allows the AI to develop persistence across sessions.
+
+## Who Is This For?
+
+**If you just want a good chat client**
+- You want a fast, local interface for Ollama
+- You want unlimited scrollback, bookmarks, and saved message snippets
+- You don’t want AI memory doing things behind your back
+
+Use REMEMBRA with Reflection Mode off.
+
+---
+
+**If you want to keep and organize important conversations**
+- You want to bookmark moments and extract ideas into a personal store
+- You want editable, markdown-friendly clippings
+- You want long conversations to stay navigable
+
+REMEMBRA works as a personal chat workspace.
+
+---
+
+**If you’re curious about AI memory**
+- You want to explore what happens when an AI can remember past sessions
+- You care about governance, decay, and consent
+- You want visibility into how memory decisions are made
+
+Enable Reflection Mode and experiment.
+
 
 ## Features
 
