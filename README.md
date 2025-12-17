@@ -15,9 +15,7 @@ Chat (Reflection Enabled)
 <img width="1920" height="1080" alt="Screenshot 2025-12-17 at 06 33 18" src="https://github.com/user-attachments/assets/a02e4a5c-8c24-440f-b966-2d036dfa0186" />
 
 Standard Chat Mode
-<img width="1920" height="1080" alt="Screenshot 2025-12-17 at 06 57 03" src="https://github.com/user-attachments/assets/f4c1eb9a-fbba-4c25-9bee-64d722cf14c0" />
-
-
+<img width="1920" height="1080" alt="Screenshot 2025-12-17 at 06 58 33" src="https://github.com/user-attachments/assets/2e6ab630-c992-405a-ac22-063af23ac4e1" />
 
 View / Edit Stored Message
 <img width="1920" height="1080" alt="Screenshot 2025-12-17 at 06 36 48" src="https://github.com/user-attachments/assets/f727ec12-b1b1-4058-90bb-16016a0fb206" />
