@@ -90,6 +90,7 @@ The model generates text. The system maintains continuity.
 - **Zig 0.15.2+** - Build toolchain
 - **Ollama** - Running on port 11434
 - **Node.js** - For building the web interface
+- **sqlite3** - Local datastore
 
 ### Build and Run
 
