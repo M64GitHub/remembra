@@ -39,16 +39,12 @@ When Reflection Mode is enabled, an experimental memory system is activated that
 
 Use REMEMBRA with Reflection Mode off.
 
----
-
 **If you want to keep and organize important conversations**
 - You want to bookmark moments and extract ideas into a personal store
 - You want editable, markdown-friendly clippings
 - You want long conversations to stay navigable
 
 REMEMBRA works as a personal chat workspace.
-
----
 
 **If you’re curious about AI memory**
 - You want to explore what happens when an AI can remember past sessions
