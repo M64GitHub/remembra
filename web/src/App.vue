@@ -9,9 +9,13 @@ import ContextViewer from './components/context/ContextViewer.vue'
 import MemoryInspector from './components/memory/MemoryInspector.vue'
 import ThoughtsViewer from './components/thoughts/ThoughtsViewer.vue'
 import ProfilesPane from './components/profiles/ProfilesPane.vue'
+import StorePane from './components/store/StorePane.vue'
+import BookmarksPane from './components/bookmarks/BookmarksPane.vue'
+import { appState } from './stores/appState.js'
 
 const leftSidebarOpen = ref(true)
 const rightSidebarOpen = ref(true)
+const leftSidebarMode = ref('memory')
 
 function toggleLeftSidebar() {
   leftSidebarOpen.value = !leftSidebarOpen.value
@@ -21,11 +25,31 @@ function toggleRightSidebar() {
   rightSidebarOpen.value = !rightSidebarOpen.value
 }
 
+function setLeftSidebarMode(mode) {
+  leftSidebarMode.value = mode
+  appState.leftSidebarMode = mode
+  localStorage.setItem('remembra-left-sidebar-mode', mode)
+}
+
+function scrollToMessage(messageId) {
+  const el = document.querySelector(`[data-message-id="${messageId}"]`)
+  if (el) {
+    el.scrollIntoView({ behavior: 'smooth', block: 'center' })
+    el.classList.add('highlight-flash')
+    setTimeout(() => el.classList.remove('highlight-flash'), 2000)
+  }
+}
+
 onMounted(() => {
   const savedLeft = localStorage.getItem('remembra-left-sidebar')
   const savedRight = localStorage.getItem('remembra-right-sidebar')
+  const savedMode = localStorage.getItem('remembra-left-sidebar-mode')
   if (savedLeft !== null) leftSidebarOpen.value = savedLeft === 'true'
   if (savedRight !== null) rightSidebarOpen.value = savedRight === 'true'
+  if (savedMode !== null) {
+    leftSidebarMode.value = savedMode
+    appState.leftSidebarMode = savedMode
+  }
 })
 
 function saveSidebarState() {
@@ -49,15 +73,39 @@ function saveSidebarState() {
         :open="leftSidebarOpen"
         @toggle="toggleLeftSidebar(); saveSidebarState()"
       >
-        <Panel title="Memory" icon="memory" :default-open="true">
-          <MemoryInspector />
-        </Panel>
-        <Panel title="Thoughts" icon="thoughts" :default-open="false">
-          <ThoughtsViewer />
-        </Panel>
-        <Panel title="Profiles" icon="profiles" :default-open="false">
-          <ProfilesPane />
-        </Panel>
+        <div class="sidebar-mode-toggle">
+          <button
+            class="mode-btn"
+            @click="setLeftSidebarMode('memory')"
+            v-if="leftSidebarMode !== 'memory'"
+          >Memory</button>
+          <button
+            class="mode-btn"
+            @click="setLeftSidebarMode('store')"
+            v-if="leftSidebarMode !== 'store'"
+          >Store</button>
+        </div>
+
+        <template v-if="leftSidebarMode === 'memory'">
+          <Panel title="Memory" icon="memory" :default-open="true">
+            <MemoryInspector />
+          </Panel>
+          <Panel title="Thoughts" icon="thoughts" :default-open="false">
+            <ThoughtsViewer />
+          </Panel>
+          <Panel title="Profiles" icon="profiles" :default-open="false">
+            <ProfilesPane />
+          </Panel>
+        </template>
+
+        <template v-else>
+          <Panel title="Store" icon="memory" :default-open="true">
+            <StorePane />
+          </Panel>
+          <Panel title="Bookmarks" icon="context" :default-open="true">
+            <BookmarksPane @jump-to="scrollToMessage" />
+          </Panel>
+        </template>
       </Sidebar>
 
       <main class="main-content">
@@ -113,5 +161,35 @@ function saveSidebarState() {
   color: var(--text-dim);
   font-size: var(--text-sm);
   text-align: center;
+}
+
+.sidebar-mode-toggle {
+  padding: var(--space-xs) var(--space-sm);
+  border-bottom: var(--border-subtle);
+  display: flex;
+  gap: var(--space-xs);
+}
+
+.mode-btn {
+  font-size: var(--text-xs);
+  padding: var(--space-xs) var(--space-sm);
+  border-radius: var(--border-radius-sm);
+  color: var(--text-muted);
+  background: var(--bg-secondary);
+  border: var(--border-subtle);
+  cursor: pointer;
+  transition: all var(--transition-fast);
+  flex: 1;
+}
+
+.mode-btn:hover {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+}
+
+.mode-btn.active {
+  background: var(--accent-primary);
+  color: white;
+  border-color: var(--accent-primary);
 }
 </style>

@@ -82,6 +82,20 @@ pub const MemoryItem = struct {
     updated_at_ms: i64 = 0,
 };
 
+pub const StoreItem = struct {
+    id: i64 = 0,
+    content: []const u8,
+    source_msg_id: ?i64 = null,
+    created_at_ms: i64 = 0,
+    updated_at_ms: i64 = 0,
+};
+
+pub const Bookmark = struct {
+    id: i64 = 0,
+    message_id: i64,
+    created_at_ms: i64 = 0,
+};
+
 pub const IdentityPreset = struct {
     id: i64 = 0,
     name: []const u8,

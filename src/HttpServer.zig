@@ -238,6 +238,20 @@ fn handleRequest(
         std.mem.eql(u8, target, "/api/system/reflection"))
     {
         try handlePostReflection(allocator, app, request);
+    } else if (method == .GET and std.mem.eql(u8, target, "/api/store")) {
+        try handleGetStore(allocator, app, request);
+    } else if (method == .POST and std.mem.eql(u8, target, "/api/store")) {
+        try handlePostStore(allocator, app, request);
+    } else if (method == .POST and startsWith(target, "/api/store/")) {
+        try handleUpdateStore(allocator, app, request);
+    } else if (method == .DELETE and startsWith(target, "/api/store/")) {
+        try handleDeleteStore(allocator, app, request);
+    } else if (method == .GET and std.mem.eql(u8, target, "/api/bookmarks")) {
+        try handleGetBookmarks(allocator, app, request);
+    } else if (method == .POST and std.mem.eql(u8, target, "/api/bookmarks")) {
+        try handlePostBookmarks(allocator, app, request);
+    } else if (method == .DELETE and startsWith(target, "/api/bookmarks/")) {
+        try handleDeleteBookmark(allocator, app, request);
     } else if (method == .GET) {
         try handleStaticFile(allocator, request);
     } else {
@@ -1171,6 +1185,370 @@ fn handlePostContextWindow(
     ) catch return respondError(request, .internal_server_error, "Format error");
 
     try respondJson(request, json);
+}
+
+fn handleGetStore(
+    allocator: std.mem.Allocator,
+    app: *App,
+    request: *std.http.Server.Request,
+) !void {
+    const pid = app.store.getActivePersonaId() orelse 1;
+    const items = app.store.loadStoreItems(allocator, pid) catch {
+        try respondError(request, .internal_server_error, "Failed to load");
+        return;
+    };
+    defer {
+        for (items) |item| allocator.free(@constCast(item.content));
+        allocator.free(items);
+    }
+
+    var json_buf: std.ArrayList(u8) = .empty;
+    defer json_buf.deinit(allocator);
+    const writer = json_buf.writer(allocator);
+
+    try json_buf.appendSlice(allocator, "{\"items\":[");
+    for (items, 0..) |item, i| {
+        if (i > 0) try json_buf.append(allocator, ',');
+        try writer.print("{{\"id\":{d},\"content\":\"", .{item.id});
+        for (item.content) |c| {
+            switch (c) {
+                '"' => try json_buf.appendSlice(allocator, "\\\""),
+                '\\' => try json_buf.appendSlice(allocator, "\\\\"),
+                '\n' => try json_buf.appendSlice(allocator, "\\n"),
+                '\r' => try json_buf.appendSlice(allocator, "\\r"),
+                '\t' => try json_buf.appendSlice(allocator, "\\t"),
+                else => try json_buf.append(allocator, c),
+            }
+        }
+        try json_buf.appendSlice(allocator, "\",\"source_msg_id\":");
+        if (item.source_msg_id) |mid| {
+            try writer.print("{d}", .{mid});
+        } else {
+            try json_buf.appendSlice(allocator, "null");
+        }
+        try writer.print(
+            ",\"created_at_ms\":{d},\"updated_at_ms\":{d}}}",
+            .{ item.created_at_ms, item.updated_at_ms },
+        );
+    }
+    try json_buf.appendSlice(allocator, "]}");
+
+    try respondJson(request, json_buf.items);
+}
+
+fn handlePostStore(
+    allocator: std.mem.Allocator,
+    app: *App,
+    request: *std.http.Server.Request,
+) !void {
+    const content_len = request.head.content_length orelse {
+        try respondError(request, .bad_request, "Missing Content-Length");
+        return;
+    };
+
+    if (content_len > READ_BUFFER_SIZE) {
+        try respondError(request, .payload_too_large, "Request too large");
+        return;
+    }
+
+    var body_buf: [READ_BUFFER_SIZE]u8 = undefined;
+    const body_reader = request.readerExpectNone(&body_buf);
+
+    const body = body_reader.readAlloc(allocator, @intCast(content_len)) catch {
+        try respondError(request, .bad_request, "Failed to read body");
+        return;
+    };
+    defer allocator.free(body);
+
+    var parsed = std.json.parseFromSlice(
+        std.json.Value,
+        allocator,
+        body,
+        .{},
+    ) catch {
+        try respondError(request, .bad_request, "Invalid JSON");
+        return;
+    };
+    defer parsed.deinit();
+
+    const root = parsed.value.object;
+    const content_node = root.get("content") orelse {
+        try respondError(request, .bad_request, "Missing 'content'");
+        return;
+    };
+    const content = switch (content_node) {
+        .string => |s| s,
+        else => {
+            try respondError(request, .bad_request, "'content' must be string");
+            return;
+        },
+    };
+
+    var source_msg_id: ?i64 = null;
+    if (root.get("source_msg_id")) |mid_node| {
+        source_msg_id = switch (mid_node) {
+            .integer => |i| i,
+            else => null,
+        };
+    }
+
+    const pid = app.store.getActivePersonaId() orelse 1;
+    const id = app.store.createStoreItem(pid, content, source_msg_id) catch {
+        try respondError(request, .internal_server_error, "Failed to create");
+        return;
+    };
+
+    var buf: [64]u8 = undefined;
+    const resp = std.fmt.bufPrint(&buf, "{{\"id\":{d}}}", .{id}) catch
+        "{\"id\":0}";
+
+    try respondJson(request, resp);
+}
+
+fn handleUpdateStore(
+    allocator: std.mem.Allocator,
+    app: *App,
+    request: *std.http.Server.Request,
+) !void {
+    const target = request.head.target;
+    const prefix = "/api/store/";
+    if (target.len <= prefix.len) {
+        try respondError(request, .bad_request, "Missing store ID");
+        return;
+    }
+
+    const id_str = target[prefix.len..];
+    const id = std.fmt.parseInt(i64, id_str, 10) catch {
+        try respondError(request, .bad_request, "Invalid store ID");
+        return;
+    };
+
+    const content_len = request.head.content_length orelse {
+        try respondError(request, .bad_request, "Missing Content-Length");
+        return;
+    };
+
+    if (content_len > READ_BUFFER_SIZE) {
+        try respondError(request, .payload_too_large, "Request too large");
+        return;
+    }
+
+    var body_buf: [READ_BUFFER_SIZE]u8 = undefined;
+    const body_reader = request.readerExpectNone(&body_buf);
+
+    const body = body_reader.readAlloc(allocator, @intCast(content_len)) catch {
+        try respondError(request, .bad_request, "Failed to read body");
+        return;
+    };
+    defer allocator.free(body);
+
+    var parsed = std.json.parseFromSlice(
+        std.json.Value,
+        allocator,
+        body,
+        .{},
+    ) catch {
+        try respondError(request, .bad_request, "Invalid JSON");
+        return;
+    };
+    defer parsed.deinit();
+
+    const root = parsed.value.object;
+    const content_node = root.get("content") orelse {
+        try respondError(request, .bad_request, "Missing 'content'");
+        return;
+    };
+    const content = switch (content_node) {
+        .string => |s| s,
+        else => {
+            try respondError(request, .bad_request, "'content' must be string");
+            return;
+        },
+    };
+
+    const pid = app.store.getActivePersonaId() orelse 1;
+    app.store.updateStoreItem(pid, id, content) catch {
+        try respondError(request, .internal_server_error, "Failed to update");
+        return;
+    };
+
+    try respondJson(request, "{\"success\":true}");
+}
+
+fn handleDeleteStore(
+    allocator: std.mem.Allocator,
+    app: *App,
+    request: *std.http.Server.Request,
+) !void {
+    _ = allocator;
+    const target = request.head.target;
+    const prefix = "/api/store/";
+    if (target.len <= prefix.len) {
+        try respondError(request, .bad_request, "Missing store ID");
+        return;
+    }
+
+    const id_str = target[prefix.len..];
+    const id = std.fmt.parseInt(i64, id_str, 10) catch {
+        try respondError(request, .bad_request, "Invalid store ID");
+        return;
+    };
+
+    const pid = app.store.getActivePersonaId() orelse 1;
+    app.store.deleteStoreItem(pid, id) catch {
+        try respondError(request, .internal_server_error, "Delete failed");
+        return;
+    };
+
+    try respondJson(request, "{\"success\":true}");
+}
+
+fn handleGetBookmarks(
+    allocator: std.mem.Allocator,
+    app: *App,
+    request: *std.http.Server.Request,
+) !void {
+    const pid = app.store.getActivePersonaId() orelse 1;
+    const bookmarks = app.store.loadBookmarks(allocator, pid) catch {
+        try respondError(request, .internal_server_error, "Failed to load");
+        return;
+    };
+    defer allocator.free(bookmarks);
+
+    var json_buf: std.ArrayList(u8) = .empty;
+    defer json_buf.deinit(allocator);
+    const writer = json_buf.writer(allocator);
+
+    try json_buf.appendSlice(allocator, "{\"bookmarks\":[");
+    for (bookmarks, 0..) |bm, i| {
+        if (i > 0) try json_buf.append(allocator, ',');
+        try writer.print(
+            "{{\"id\":{d},\"message_id\":{d},\"created_at_ms\":{d}}}",
+            .{ bm.id, bm.message_id, bm.created_at_ms },
+        );
+    }
+    try json_buf.appendSlice(allocator, "],\"bookmarked_ids\":[");
+
+    const bm_ids = app.store.loadBookmarkedMessageIds(allocator, pid) catch {
+        try respondError(request, .internal_server_error, "Failed to load IDs");
+        return;
+    };
+    defer allocator.free(bm_ids);
+
+    for (bm_ids, 0..) |mid, i| {
+        if (i > 0) try json_buf.append(allocator, ',');
+        try writer.print("{d}", .{mid});
+    }
+    try json_buf.appendSlice(allocator, "]}");
+
+    try respondJson(request, json_buf.items);
+}
+
+fn handlePostBookmarks(
+    allocator: std.mem.Allocator,
+    app: *App,
+    request: *std.http.Server.Request,
+) !void {
+    const content_len = request.head.content_length orelse {
+        try respondError(request, .bad_request, "Missing Content-Length");
+        return;
+    };
+
+    if (content_len > READ_BUFFER_SIZE) {
+        try respondError(request, .payload_too_large, "Request too large");
+        return;
+    }
+
+    var body_buf: [READ_BUFFER_SIZE]u8 = undefined;
+    const body_reader = request.readerExpectNone(&body_buf);
+
+    const body = body_reader.readAlloc(allocator, @intCast(content_len)) catch {
+        try respondError(request, .bad_request, "Failed to read body");
+        return;
+    };
+    defer allocator.free(body);
+
+    var parsed = std.json.parseFromSlice(
+        std.json.Value,
+        allocator,
+        body,
+        .{},
+    ) catch {
+        try respondError(request, .bad_request, "Invalid JSON");
+        return;
+    };
+    defer parsed.deinit();
+
+    const root = parsed.value.object;
+    const pid = app.store.getActivePersonaId() orelse 1;
+
+    if (root.get("message_ids")) |ids_node| {
+        switch (ids_node) {
+            .array => |arr| {
+                for (arr.items) |item| {
+                    const mid = switch (item) {
+                        .integer => |i| i,
+                        else => continue,
+                    };
+                    _ = app.store.createBookmark(pid, mid) catch continue;
+                }
+            },
+            else => {},
+        }
+    } else if (root.get("message_id")) |mid_node| {
+        const mid = switch (mid_node) {
+            .integer => |i| i,
+            else => {
+                try respondError(request, .bad_request, "Invalid message_id");
+                return;
+            },
+        };
+        _ = app.store.createBookmark(pid, mid) catch {
+            try respondError(request, .internal_server_error, "Create failed");
+            return;
+        };
+    }
+
+    try respondJson(request, "{\"success\":true}");
+}
+
+fn handleDeleteBookmark(
+    allocator: std.mem.Allocator,
+    app: *App,
+    request: *std.http.Server.Request,
+) !void {
+    _ = allocator;
+    const target = request.head.target;
+    const prefix = "/api/bookmarks/";
+    if (target.len <= prefix.len) {
+        try respondError(request, .bad_request, "Missing bookmark ID");
+        return;
+    }
+
+    const id_str = target[prefix.len..];
+    const pid = app.store.getActivePersonaId() orelse 1;
+
+    if (std.mem.startsWith(u8, id_str, "msg/")) {
+        const msg_id = std.fmt.parseInt(i64, id_str[4..], 10) catch {
+            try respondError(request, .bad_request, "Invalid message ID");
+            return;
+        };
+        app.store.deleteBookmarkByMessageId(pid, msg_id) catch {
+            try respondError(request, .internal_server_error, "Delete failed");
+            return;
+        };
+    } else {
+        const id = std.fmt.parseInt(i64, id_str, 10) catch {
+            try respondError(request, .bad_request, "Invalid bookmark ID");
+            return;
+        };
+        app.store.deleteBookmark(pid, id) catch {
+            try respondError(request, .internal_server_error, "Delete failed");
+            return;
+        };
+    }
+
+    try respondJson(request, "{\"success\":true}");
 }
 
 const MemoryInput = struct {
