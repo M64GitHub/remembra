@@ -4,5 +4,5 @@ tmp/
 web/dist/
 package-lock.json
 web/.*
-
+web/node_modules/
 

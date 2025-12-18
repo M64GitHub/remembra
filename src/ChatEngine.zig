@@ -62,7 +62,9 @@ pub fn processAndReturn(
 
     const allow_ops = checkSecurity(app, pid, user_input);
 
-    try runIdleThinker(allocator, app, pid);
+    if (app.reflection_enabled) {
+        try runIdleThinker(allocator, app, pid);
+    }
 
     var ctx = try gatherContext(allocator, app, pid);
     defer ctx.deinit(allocator);
@@ -140,6 +142,31 @@ fn gatherContext(
 
     const now_ms = app.store.nowMs();
 
+    const recent = try app.store.loadRecentMessages(
+        allocator,
+        pid,
+        app.max_recent_messages,
+    );
+    errdefer {
+        for (recent) |m| allocator.free(@constCast(m.content));
+        allocator.free(recent);
+    }
+
+    const last_user_ms = app.store.getLastUserMsgMs();
+
+    if (!app.reflection_enabled) {
+        return .{
+            .identity = identity,
+            .memory = &.{},
+            .candidates = &.{},
+            .recent = recent,
+            .now_ms = now_ms,
+            .last_user_ms = last_user_ms,
+            .last_episode = null,
+            .last_thought = null,
+        };
+    }
+
     const candidates = try app.store.loadMemoryCandidates(
         allocator,
         pid,
@@ -168,17 +195,6 @@ fn gatherContext(
         memory[j] = candidates[idx];
     }
 
-    const recent = try app.store.loadRecentMessages(
-        allocator,
-        pid,
-        app.max_recent_messages,
-    );
-    errdefer {
-        for (recent) |m| allocator.free(@constCast(m.content));
-        allocator.free(recent);
-    }
-
-    const last_user_ms = app.store.getLastUserMsgMs();
     const last_episode = app.store.latestActiveObjectByKey(
         pid,
         "episode",

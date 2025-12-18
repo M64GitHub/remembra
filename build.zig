@@ -10,6 +10,7 @@ pub fn build(b: *std.Build) void {
             .root_source_file = b.path("src/remembra.zig"),
             .target = target,
             .optimize = optimize,
+            .link_libc = true,
         }),
     });
 
@@ -28,6 +29,7 @@ pub fn build(b: *std.Build) void {
             .root_source_file = b.path("src/remembra.zig"),
             .target = target,
             .optimize = optimize,
+            .link_libc = true,
         }),
     });
 
@@ -55,6 +57,7 @@ pub fn build(b: *std.Build) void {
             .root_source_file = b.path("src/remembra_server.zig"),
             .target = target,
             .optimize = optimize,
+            .link_libc = true,
         }),
     });
 
