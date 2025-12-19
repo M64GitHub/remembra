@@ -11,6 +11,7 @@ export const appState = reactive({
   selectedMessageIds: new Set(),
   bookmarkedMessageIds: new Set(),
   reflectionEnabled: true,
+  showThinkingLive: false,
 })
 
 export function toggleMessageSelection(msgId) {

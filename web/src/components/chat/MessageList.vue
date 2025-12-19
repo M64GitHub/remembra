@@ -1,5 +1,5 @@
 <script setup>
-import { ref, watch, nextTick, onMounted, computed } from 'vue'
+import { ref, watch, nextTick, onMounted, onUnmounted, computed } from 'vue'
 import MessageBubble from './MessageBubble.vue'
 
 const props = defineProps({
@@ -10,6 +10,7 @@ const props = defineProps({
   isLoading: Boolean,
   hasMore: Boolean,
   isSending: Boolean,
+  isStreaming: Boolean,
   maxRecentMessages: {
     type: Number,
     default: 24,
@@ -27,6 +28,7 @@ const emit = defineEmits(['load-more'])
 const listRef = ref(null)
 const isAtBottom = ref(true)
 const showScrollButton = ref(false)
+let scrollInterval = null
 
 function checkScroll() {
   if (!listRef.value) return
@@ -57,8 +59,33 @@ watch(
   }
 )
 
+watch(
+  () => props.isStreaming,
+  (streaming) => {
+    if (streaming) {
+      scrollInterval = setInterval(() => {
+        if (isAtBottom.value) {
+          scrollToBottom(false)
+        }
+      }, 100)
+    } else {
+      if (scrollInterval) {
+        clearInterval(scrollInterval)
+        scrollInterval = null
+      }
+    }
+  }
+)
+
 onMounted(() => {
   nextTick(() => scrollToBottom(false))
+})
+
+onUnmounted(() => {
+  if (scrollInterval) {
+    clearInterval(scrollInterval)
+    scrollInterval = null
+  }
 })
 </script>
 

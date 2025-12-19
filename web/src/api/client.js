@@ -57,6 +57,70 @@ export const chat = {
     if (before !== null) params.set('before', String(before));
     return get(`/api/messages?${params}`);
   },
+  stream: async (message, signal, onChunk, onComplete, onError) => {
+    try {
+      const response = await fetch(API_BASE + '/api/chat/stream', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          messages: [{ role: 'user', content: message }]
+        }),
+        signal,
+      });
+
+      if (!response.ok) {
+        throw new ApiError(response.status, response.statusText);
+      }
+
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = '';
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+
+        buffer += decoder.decode(value, { stream: true });
+
+        const lines = buffer.split('\n');
+        buffer = lines.pop();
+
+        for (const line of lines) {
+          if (line.startsWith('data: ')) {
+            try {
+              const chunk = JSON.parse(line.slice(6));
+              if (chunk.done) {
+                onComplete(chunk);
+              } else {
+                onChunk(chunk);
+              }
+            } catch (e) {
+              // Skip malformed JSON lines
+            }
+          }
+        }
+      }
+
+      if (buffer.startsWith('data: ')) {
+        try {
+          const chunk = JSON.parse(buffer.slice(6));
+          if (chunk.done) {
+            onComplete(chunk);
+          } else {
+            onChunk(chunk);
+          }
+        } catch (e) {
+          // Skip
+        }
+      }
+    } catch (err) {
+      if (err.name === 'AbortError') {
+        onComplete({ done: true, aborted: true });
+      } else {
+        onError(err);
+      }
+    }
+  },
 };
 
 export const memories = {

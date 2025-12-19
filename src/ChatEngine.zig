@@ -80,6 +80,93 @@ pub fn processAndReturn(
     return resp;
 }
 
+pub fn processStreaming(
+    allocator: std.mem.Allocator,
+    app: *App,
+    user_input: []const u8,
+    writer: anytype,
+) !void {
+    const pid = app.store.getActivePersonaId() orelse 1;
+
+    _ = checkSecurity(app, pid, user_input);
+
+    if (app.reflection_enabled) {
+        try runIdleThinker(allocator, app, pid);
+    }
+
+    var ctx = try gatherContext(allocator, app, pid);
+    defer ctx.deinit(allocator);
+
+    try generateReplyStreaming(allocator, app, pid, &ctx, user_input, writer);
+}
+
+fn generateReplyStreaming(
+    allocator: std.mem.Allocator,
+    app: *App,
+    pid: i64,
+    ctx: *const TurnContext,
+    user_input: []const u8,
+    writer: anytype,
+) !void {
+    try app.store.insertMessage(allocator, pid, .user, user_input);
+
+    app.cli.msg(.dbg, "injecting {d} memory items", .{ctx.memory.len});
+    app.cli.msg(.dbg, "injecting {d} recent messages", .{ctx.recent.len});
+
+    app.events.emitFmt(
+        pid,
+        .context_built,
+        "chat",
+        "memory={d} recent={d}",
+        .{ ctx.memory.len, ctx.recent.len },
+    );
+
+    const model_msgs = try PromptBuilder.build(
+        allocator,
+        ctx.identity,
+        ctx.memory,
+        ctx.recent,
+        user_input,
+        ctx.now_ms,
+        ctx.last_user_ms,
+        ctx.last_episode,
+        ctx.last_thought,
+        app.ident.name,
+        app.ident.persona_kernel,
+        app.ident.prompts,
+        app.reflection_enabled,
+        app.include_ai_name,
+    );
+    defer {
+        if (model_msgs.len != 0 and model_msgs[0].role == .system) {
+            allocator.free(@constCast(model_msgs[0].content));
+        }
+        allocator.free(model_msgs);
+    }
+
+    storeLastContext(app, model_msgs, ctx);
+
+    app.cli.msg(.dbg, "prompt total messages: {d}", .{model_msgs.len});
+
+    const result = try app.provider.chatStream(allocator, model_msgs, .{
+        .model = app.conn.ollama_model,
+        .temperature = app.ident.llm_chat.temperature,
+        .max_tokens = app.ident.llm_chat.max_tokens,
+    }, app.cli, writer);
+    defer allocator.free(result.content);
+
+    // Store the assistant's response to the database
+    try app.store.insertMessage(allocator, pid, .assistant, result.content);
+
+    app.events.emitFmt(
+        pid,
+        .chat_completed,
+        "chat",
+        "streaming",
+        .{},
+    );
+}
+
 fn checkSecurity(app: *App, pid: i64, input: []const u8) bool {
     const guard = InjectionGuard.check(input);
     if (guard.is_attack) {

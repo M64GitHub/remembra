@@ -14,8 +14,18 @@ import FloatingActions from './FloatingActions.vue'
 const messages = ref([])
 const isLoading = ref(false)
 const isSending = ref(false)
+const isStreaming = ref(false)
 const hasMore = ref(true)
 const error = ref(null)
+
+let streamAbortController = null
+
+function stopGeneration() {
+  if (streamAbortController) {
+    streamAbortController.abort()
+    streamAbortController = null
+  }
+}
 
 async function loadBookmarks() {
   try {
@@ -102,59 +112,113 @@ async function sendMessage(text) {
     return
   }
 
-  // Regular chat message
+  // Regular chat message - use streaming
   isSending.value = true
+  isStreaming.value = true
   appState.isChatBusy = true
   error.value = null
 
-  const msgId = Date.now()
+  const userMsgId = Date.now()
   messages.value.push({
-    id: msgId,
+    id: userMsgId,
     role: 'user',
     content: text,
-    created_at_ms: msgId,
+    created_at_ms: userMsgId,
     pending: true,
+  })
+
+  const assistantMsgId = userMsgId + 1
+  const streamStartTime = Date.now()
+  messages.value.push({
+    id: assistantMsgId,
+    role: 'assistant',
+    content: '',
+    thinking: '',
+    isThinking: true,
+    created_at_ms: assistantMsgId,
+    streaming: true,
+    tokenCount: 0,
+    liveTps: null,
   })
 
   await nextTick()
 
-  try {
-    const data = await chat.send(text)
+  streamAbortController = new AbortController()
 
-    // Update through reactive array to trigger re-render
-    const userMsgIndex = messages.value.findIndex(m => m.id === msgId)
-    if (userMsgIndex >= 0) {
-      messages.value[userMsgIndex] = {
-        ...messages.value[userMsgIndex],
-        pending: false,
+  await chat.stream(
+    text,
+    streamAbortController.signal,
+    // onChunk
+    (chunk) => {
+      const idx = messages.value.findIndex(m => m.id === assistantMsgId)
+      if (idx >= 0) {
+        const msg = messages.value[idx]
+        if (chunk.content) {
+          msg.content += chunk.content
+          msg.isThinking = false
+        }
+        if (chunk.thinking) {
+          msg.thinking = (msg.thinking || '') + chunk.thinking
+          msg.isThinking = true
+        }
+        if (chunk.thinking || chunk.content) {
+          msg.tokenCount = (msg.tokenCount || 0) + 1
+          const elapsed = (Date.now() - streamStartTime) / 1000
+          if (elapsed > 0) {
+            msg.liveTps = (msg.tokenCount / elapsed).toFixed(1)
+          }
+        }
       }
-    }
+    },
+    // onComplete
+    (final) => {
+      // Mark user message as no longer pending
+      const userIdx = messages.value.findIndex(m => m.id === userMsgId)
+      if (userIdx >= 0) {
+        messages.value[userIdx].pending = false
+      }
 
-    messages.value.push({
-      id: Date.now() + 1,
-      role: 'assistant',
-      content: data.message.content,
-      created_at_ms: Date.now(),
-      prompt_tokens: data.prompt_tokens,
-      completion_tokens: data.completion_tokens,
-      eval_duration_ms: data.eval_duration_ms,
-      thinking: data.thinking,
-    })
-  } catch (e) {
-    error.value = e.message
-    // Update through reactive array
-    const userMsgIndex = messages.value.findIndex(m => m.id === msgId)
-    if (userMsgIndex >= 0) {
-      messages.value[userMsgIndex] = {
-        ...messages.value[userMsgIndex],
-        error: true,
+      // Update assistant message with final stats
+      const idx = messages.value.findIndex(m => m.id === assistantMsgId)
+      if (idx >= 0) {
+        const msg = messages.value[idx]
+        msg.streaming = false
+        msg.isThinking = false
+        msg.liveTps = null
+        if (!final.aborted) {
+          msg.prompt_tokens = final.prompt_tokens
+          msg.completion_tokens = final.completion_tokens
+          msg.eval_duration_ms = final.eval_duration_ms
+        }
       }
+
+      isSending.value = false
+      isStreaming.value = false
+      appState.isChatBusy = false
+      streamAbortController = null
+    },
+    // onError
+    (err) => {
+      error.value = err.message
+      console.error('Streaming failed:', err)
+
+      const userIdx = messages.value.findIndex(m => m.id === userMsgId)
+      if (userIdx >= 0) {
+        messages.value[userIdx].error = true
+      }
+
+      const idx = messages.value.findIndex(m => m.id === assistantMsgId)
+      if (idx >= 0) {
+        messages.value[idx].streaming = false
+        messages.value[idx].error = true
+      }
+
+      isSending.value = false
+      isStreaming.value = false
+      appState.isChatBusy = false
+      streamAbortController = null
     }
-    console.error('Failed to send message:', e)
-  } finally {
-    isSending.value = false
-    appState.isChatBusy = false
-  }
+  )
 }
 
 let unregisterReload = null
@@ -190,13 +254,16 @@ onUnmounted(() => {
       :is-loading="isLoading"
       :has-more="hasMore"
       :is-sending="isSending"
+      :is-streaming="isStreaming"
       :max-recent-messages="appState.maxRecentMessages"
       @load-more="loadMore"
     />
 
     <ChatInput
       :disabled="isSending"
+      :is-streaming="isStreaming"
       @send="sendMessage"
+      @stop="stopGeneration"
     />
 
     <FloatingActions :messages="messages" />

@@ -121,6 +121,26 @@ pub const ChatResponse = struct {
     eval_duration_ns: ?i64 = null,
 };
 
+pub const StreamChunk = struct {
+    content: []const u8,
+    thinking: []const u8 = "",
+    done: bool,
+    prompt_tokens: ?u32 = null,
+    completion_tokens: ?u32 = null,
+    eval_duration_ns: ?i64 = null,
+};
+
+pub const StreamStats = struct {
+    prompt_tokens: ?u32 = null,
+    completion_tokens: ?u32 = null,
+    eval_duration_ns: ?i64 = null,
+};
+
+pub const StreamResult = struct {
+    stats: StreamStats,
+    content: []const u8,
+};
+
 pub const LlmParams = struct {
     temperature: f32,
     max_tokens: u32,
