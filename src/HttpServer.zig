@@ -247,6 +247,10 @@ fn handleRequest(
         try handleGetStore(allocator, app, request);
     } else if (method == .POST and std.mem.eql(u8, target, "/api/store")) {
         try handlePostStore(allocator, app, request);
+    } else if (method == .POST and startsWith(target, "/api/store/") and
+        endsWith(target, "/tags"))
+    {
+        try handleSetStoreItemTags(allocator, app, request);
     } else if (method == .POST and startsWith(target, "/api/store/")) {
         try handleUpdateStore(allocator, app, request);
     } else if (method == .DELETE and startsWith(target, "/api/store/")) {
@@ -257,6 +261,22 @@ fn handleRequest(
         try handlePostBookmarks(allocator, app, request);
     } else if (method == .DELETE and startsWith(target, "/api/bookmarks/")) {
         try handleDeleteBookmark(allocator, app, request);
+    } else if (method == .POST and startsWith(target, "/api/bookmarks/") and
+        endsWith(target, "/label"))
+    {
+        try handleUpdateBookmarkLabel(allocator, app, request);
+    } else if (method == .POST and startsWith(target, "/api/bookmarks/") and
+        endsWith(target, "/tags"))
+    {
+        try handleSetBookmarkTags(allocator, app, request);
+    } else if (method == .GET and std.mem.eql(u8, target, "/api/tags")) {
+        try handleGetTags(allocator, app, request);
+    } else if (method == .POST and std.mem.eql(u8, target, "/api/tags")) {
+        try handlePostTag(allocator, app, request);
+    } else if (method == .POST and startsWith(target, "/api/tags/")) {
+        try handleUpdateTag(allocator, app, request);
+    } else if (method == .DELETE and startsWith(target, "/api/tags/")) {
+        try handleDeleteTag(allocator, app, request);
     } else if (method == .GET) {
         try handleStaticFile(allocator, request);
     } else {
@@ -267,6 +287,43 @@ fn handleRequest(
 fn startsWith(haystack: []const u8, needle: []const u8) bool {
     return haystack.len >= needle.len and
         std.mem.eql(u8, haystack[0..needle.len], needle);
+}
+
+fn endsWith(haystack: []const u8, needle: []const u8) bool {
+    return haystack.len >= needle.len and
+        std.mem.eql(u8, haystack[haystack.len - needle.len ..], needle);
+}
+
+fn readBody(
+    allocator: std.mem.Allocator,
+    request: *std.http.Server.Request,
+) ![]u8 {
+    const content_len = request.head.content_length orelse return error.NoBody;
+    if (content_len > READ_BUFFER_SIZE) return error.BodyTooLarge;
+
+    var body_buf: [READ_BUFFER_SIZE]u8 = undefined;
+    const body_reader = request.readerExpectNone(&body_buf);
+
+    return body_reader.readAlloc(allocator, @intCast(content_len));
+}
+
+fn writeJsonString(
+    allocator: std.mem.Allocator,
+    buf: *std.ArrayList(u8),
+    str: []const u8,
+) !void {
+    try buf.append(allocator, '"');
+    for (str) |ch| {
+        switch (ch) {
+            '"' => try buf.appendSlice(allocator, "\\\""),
+            '\\' => try buf.appendSlice(allocator, "\\\\"),
+            '\n' => try buf.appendSlice(allocator, "\\n"),
+            '\r' => try buf.appendSlice(allocator, "\\r"),
+            '\t' => try buf.appendSlice(allocator, "\\t"),
+            else => try buf.append(allocator, ch),
+        }
+    }
+    try buf.append(allocator, '"');
 }
 
 fn handleChat(
@@ -1282,6 +1339,11 @@ fn handleGetStore(
     try json_buf.appendSlice(allocator, "{\"items\":[");
     for (items, 0..) |item, i| {
         if (i > 0) try json_buf.append(allocator, ',');
+
+        const tag_ids = app.store.getStoreItemTagIds(allocator, item.id) catch
+            &.{};
+        defer if (tag_ids.len > 0) allocator.free(tag_ids);
+
         try writer.print("{{\"id\":{d},\"content\":\"", .{item.id});
         for (item.content) |c| {
             switch (c) {
@@ -1299,8 +1361,13 @@ fn handleGetStore(
         } else {
             try json_buf.appendSlice(allocator, "null");
         }
+        try json_buf.appendSlice(allocator, ",\"tag_ids\":[");
+        for (tag_ids, 0..) |tid, j| {
+            if (j > 0) try json_buf.append(allocator, ',');
+            try writer.print("{d}", .{tid});
+        }
         try writer.print(
-            ",\"created_at_ms\":{d},\"updated_at_ms\":{d}}}",
+            "],\"created_at_ms\":{d},\"updated_at_ms\":{d}}}",
             .{ item.created_at_ms, item.updated_at_ms },
         );
     }
@@ -1489,7 +1556,12 @@ fn handleGetBookmarks(
         try respondError(request, .internal_server_error, "Failed to load");
         return;
     };
-    defer allocator.free(bookmarks);
+    defer {
+        for (bookmarks) |bm| {
+            if (bm.label.len > 0) allocator.free(@constCast(bm.label));
+        }
+        allocator.free(bookmarks);
+    }
 
     var json_buf: std.ArrayList(u8) = .empty;
     defer json_buf.deinit(allocator);
@@ -1498,10 +1570,21 @@ fn handleGetBookmarks(
     try json_buf.appendSlice(allocator, "{\"bookmarks\":[");
     for (bookmarks, 0..) |bm, i| {
         if (i > 0) try json_buf.append(allocator, ',');
+
+        const tag_ids = app.store.getBookmarkTagIds(allocator, bm.id) catch &.{};
+        defer if (tag_ids.len > 0) allocator.free(tag_ids);
+
         try writer.print(
-            "{{\"id\":{d},\"message_id\":{d},\"created_at_ms\":{d}}}",
-            .{ bm.id, bm.message_id, bm.created_at_ms },
+            "{{\"id\":{d},\"message_id\":{d},\"label\":",
+            .{ bm.id, bm.message_id },
         );
+        try writeJsonString(allocator, &json_buf, bm.label);
+        try json_buf.appendSlice(allocator, ",\"tag_ids\":[");
+        for (tag_ids, 0..) |tid, j| {
+            if (j > 0) try json_buf.append(allocator, ',');
+            try writer.print("{d}", .{tid});
+        }
+        try writer.print("],\"created_at_ms\":{d}}}", .{bm.created_at_ms});
     }
     try json_buf.appendSlice(allocator, "],\"bookmarked_ids\":[");
 
@@ -1566,7 +1649,7 @@ fn handlePostBookmarks(
                         .integer => |i| i,
                         else => continue,
                     };
-                    _ = app.store.createBookmark(pid, mid) catch continue;
+                    _ = app.store.createBookmark(pid, mid, "") catch continue;
                 }
             },
             else => {},
@@ -1579,7 +1662,16 @@ fn handlePostBookmarks(
                 return;
             },
         };
-        _ = app.store.createBookmark(pid, mid) catch {
+        const label = blk: {
+            if (root.get("label")) |lbl| {
+                break :blk switch (lbl) {
+                    .string => |s| s,
+                    else => "",
+                };
+            }
+            break :blk "";
+        };
+        _ = app.store.createBookmark(pid, mid, label) catch {
             try respondError(request, .internal_server_error, "Create failed");
             return;
         };
@@ -1627,6 +1719,407 @@ fn handleDeleteBookmark(
 
     try respondJson(request, "{\"success\":true}");
     app.events.emit("bookmarks_changed", "bookmark", "deleted");
+}
+
+fn handleUpdateBookmarkLabel(
+    allocator: std.mem.Allocator,
+    app: *App,
+    request: *std.http.Server.Request,
+) !void {
+    const target = request.head.target;
+    const prefix = "/api/bookmarks/";
+    const suffix = "/label";
+    if (target.len <= prefix.len + suffix.len) {
+        try respondError(request, .bad_request, "Invalid path");
+        return;
+    }
+
+    const id_part = target[prefix.len .. target.len - suffix.len];
+    const id = std.fmt.parseInt(i64, id_part, 10) catch {
+        try respondError(request, .bad_request, "Invalid bookmark ID");
+        return;
+    };
+
+    const body = try readBody(allocator, request);
+    defer allocator.free(body);
+
+    var parsed = std.json.parseFromSlice(
+        std.json.Value,
+        allocator,
+        body,
+        .{},
+    ) catch {
+        try respondError(request, .bad_request, "Invalid JSON");
+        return;
+    };
+    defer parsed.deinit();
+
+    if (parsed.value != .object) {
+        try respondError(request, .bad_request, "Expected object");
+        return;
+    }
+    const root = parsed.value.object;
+
+    const label = blk: {
+        const lbl = root.get("label") orelse break :blk "";
+        break :blk switch (lbl) {
+            .string => |s| s,
+            else => "",
+        };
+    };
+
+    const pid = app.store.getActivePersonaId() orelse 1;
+    app.store.updateBookmarkLabel(pid, id, label) catch {
+        try respondError(request, .internal_server_error, "Update failed");
+        return;
+    };
+
+    try respondJson(request, "{\"success\":true}");
+    app.events.emit("bookmarks_changed", "bookmark", "updated");
+}
+
+fn handleSetBookmarkTags(
+    allocator: std.mem.Allocator,
+    app: *App,
+    request: *std.http.Server.Request,
+) !void {
+    const target = request.head.target;
+    const prefix = "/api/bookmarks/";
+    const suffix = "/tags";
+    if (target.len <= prefix.len + suffix.len) {
+        try respondError(request, .bad_request, "Invalid path");
+        return;
+    }
+
+    const id_part = target[prefix.len .. target.len - suffix.len];
+    const id = std.fmt.parseInt(i64, id_part, 10) catch {
+        try respondError(request, .bad_request, "Invalid bookmark ID");
+        return;
+    };
+
+    const body = try readBody(allocator, request);
+    defer allocator.free(body);
+
+    var parsed = std.json.parseFromSlice(
+        std.json.Value,
+        allocator,
+        body,
+        .{},
+    ) catch {
+        try respondError(request, .bad_request, "Invalid JSON");
+        return;
+    };
+    defer parsed.deinit();
+
+    if (parsed.value != .object) {
+        try respondError(request, .bad_request, "Expected object");
+        return;
+    }
+    const root = parsed.value.object;
+
+    const tag_ids = blk: {
+        const arr_node = root.get("tag_ids") orelse {
+            try respondError(request, .bad_request, "Missing tag_ids");
+            return;
+        };
+        if (arr_node != .array) {
+            try respondError(request, .bad_request, "tag_ids must be array");
+            return;
+        }
+        var ids: std.ArrayList(i64) = .empty;
+        errdefer ids.deinit(allocator);
+        for (arr_node.array.items) |item| {
+            if (item == .integer) {
+                try ids.append(allocator, item.integer);
+            }
+        }
+        break :blk try ids.toOwnedSlice(allocator);
+    };
+    defer allocator.free(tag_ids);
+
+    app.store.setBookmarkTags(id, tag_ids) catch {
+        try respondError(request, .internal_server_error, "Update failed");
+        return;
+    };
+
+    try respondJson(request, "{\"success\":true}");
+    app.events.emit("bookmarks_changed", "bookmark", "tags_updated");
+}
+
+fn handleSetStoreItemTags(
+    allocator: std.mem.Allocator,
+    app: *App,
+    request: *std.http.Server.Request,
+) !void {
+    const target = request.head.target;
+    const prefix = "/api/store/";
+    const suffix = "/tags";
+    if (target.len <= prefix.len + suffix.len) {
+        try respondError(request, .bad_request, "Invalid path");
+        return;
+    }
+
+    const id_part = target[prefix.len .. target.len - suffix.len];
+    const id = std.fmt.parseInt(i64, id_part, 10) catch {
+        try respondError(request, .bad_request, "Invalid store item ID");
+        return;
+    };
+
+    const body = try readBody(allocator, request);
+    defer allocator.free(body);
+
+    var parsed = std.json.parseFromSlice(
+        std.json.Value,
+        allocator,
+        body,
+        .{},
+    ) catch {
+        try respondError(request, .bad_request, "Invalid JSON");
+        return;
+    };
+    defer parsed.deinit();
+
+    if (parsed.value != .object) {
+        try respondError(request, .bad_request, "Expected object");
+        return;
+    }
+    const root = parsed.value.object;
+
+    const tag_ids = blk: {
+        const arr_node = root.get("tag_ids") orelse {
+            try respondError(request, .bad_request, "Missing tag_ids");
+            return;
+        };
+        if (arr_node != .array) {
+            try respondError(request, .bad_request, "tag_ids must be array");
+            return;
+        }
+        var ids: std.ArrayList(i64) = .empty;
+        errdefer ids.deinit(allocator);
+        for (arr_node.array.items) |item| {
+            if (item == .integer) {
+                try ids.append(allocator, item.integer);
+            }
+        }
+        break :blk try ids.toOwnedSlice(allocator);
+    };
+    defer allocator.free(tag_ids);
+
+    app.store.setStoreItemTags(id, tag_ids) catch {
+        try respondError(request, .internal_server_error, "Update failed");
+        return;
+    };
+
+    try respondJson(request, "{\"success\":true}");
+    app.events.emit("store_changed", "item", "tags_updated");
+}
+
+fn handleGetTags(
+    allocator: std.mem.Allocator,
+    app: *App,
+    request: *std.http.Server.Request,
+) !void {
+    const pid = app.store.getActivePersonaId() orelse 1;
+    const tags = app.store.loadTags(allocator, pid) catch {
+        try respondError(request, .internal_server_error, "Failed to load tags");
+        return;
+    };
+    defer {
+        for (tags) |t| {
+            allocator.free(@constCast(t.name));
+            allocator.free(@constCast(t.color));
+        }
+        allocator.free(tags);
+    }
+
+    var buf: [16384]u8 = undefined;
+    var fbs = std.io.fixedBufferStream(&buf);
+    const w = fbs.writer();
+
+    try w.writeAll("{\"tags\":[");
+    for (tags, 0..) |t, i| {
+        if (i > 0) try w.writeByte(',');
+        try w.print(
+            "{{\"id\":{d},\"name\":\"{s}\",\"color\":\"{s}\"," ++
+                "\"created_at_ms\":{d}}}",
+            .{ t.id, t.name, t.color, t.created_at_ms },
+        );
+    }
+    try w.writeAll("]}");
+
+    try respondJson(request, fbs.getWritten());
+}
+
+fn handlePostTag(
+    allocator: std.mem.Allocator,
+    app: *App,
+    request: *std.http.Server.Request,
+) !void {
+    const body = try readBody(allocator, request);
+    defer allocator.free(body);
+
+    var parsed = std.json.parseFromSlice(
+        std.json.Value,
+        allocator,
+        body,
+        .{},
+    ) catch {
+        try respondError(request, .bad_request, "Invalid JSON");
+        return;
+    };
+    defer parsed.deinit();
+
+    if (parsed.value != .object) {
+        try respondError(request, .bad_request, "Expected object");
+        return;
+    }
+    const root = parsed.value.object;
+
+    const name = blk: {
+        const n = root.get("name") orelse {
+            try respondError(request, .bad_request, "Missing name");
+            return;
+        };
+        break :blk switch (n) {
+            .string => |s| s,
+            else => {
+                try respondError(request, .bad_request, "Invalid name");
+                return;
+            },
+        };
+    };
+
+    const color = blk: {
+        const c = root.get("color") orelse {
+            try respondError(request, .bad_request, "Missing color");
+            return;
+        };
+        break :blk switch (c) {
+            .string => |s| s,
+            else => {
+                try respondError(request, .bad_request, "Invalid color");
+                return;
+            },
+        };
+    };
+
+    const pid = app.store.getActivePersonaId() orelse 1;
+    const tag_id = app.store.createTag(pid, name, color) catch {
+        try respondError(request, .internal_server_error, "Create failed");
+        return;
+    };
+
+    var resp_buf: [64]u8 = undefined;
+    const resp = std.fmt.bufPrint(&resp_buf, "{{\"id\":{d}}}", .{tag_id}) catch {
+        try respondError(request, .internal_server_error, "Format error");
+        return;
+    };
+
+    try respondJson(request, resp);
+    app.events.emit("tags_changed", "tag", "created");
+}
+
+fn handleUpdateTag(
+    allocator: std.mem.Allocator,
+    app: *App,
+    request: *std.http.Server.Request,
+) !void {
+    const target = request.head.target;
+    const prefix = "/api/tags/";
+    if (target.len <= prefix.len) {
+        try respondError(request, .bad_request, "Missing tag ID");
+        return;
+    }
+
+    const id = std.fmt.parseInt(i64, target[prefix.len..], 10) catch {
+        try respondError(request, .bad_request, "Invalid tag ID");
+        return;
+    };
+
+    const body = try readBody(allocator, request);
+    defer allocator.free(body);
+
+    var parsed = std.json.parseFromSlice(
+        std.json.Value,
+        allocator,
+        body,
+        .{},
+    ) catch {
+        try respondError(request, .bad_request, "Invalid JSON");
+        return;
+    };
+    defer parsed.deinit();
+
+    if (parsed.value != .object) {
+        try respondError(request, .bad_request, "Expected object");
+        return;
+    }
+    const root = parsed.value.object;
+
+    const name = blk: {
+        const n = root.get("name") orelse {
+            try respondError(request, .bad_request, "Missing name");
+            return;
+        };
+        break :blk switch (n) {
+            .string => |s| s,
+            else => {
+                try respondError(request, .bad_request, "Invalid name");
+                return;
+            },
+        };
+    };
+
+    const color = blk: {
+        const c = root.get("color") orelse {
+            try respondError(request, .bad_request, "Missing color");
+            return;
+        };
+        break :blk switch (c) {
+            .string => |s| s,
+            else => {
+                try respondError(request, .bad_request, "Invalid color");
+                return;
+            },
+        };
+    };
+
+    const pid = app.store.getActivePersonaId() orelse 1;
+    app.store.updateTag(pid, id, name, color) catch {
+        try respondError(request, .internal_server_error, "Update failed");
+        return;
+    };
+
+    try respondJson(request, "{\"success\":true}");
+    app.events.emit("tags_changed", "tag", "updated");
+}
+
+fn handleDeleteTag(
+    allocator: std.mem.Allocator,
+    app: *App,
+    request: *std.http.Server.Request,
+) !void {
+    _ = allocator;
+    const target = request.head.target;
+    const prefix = "/api/tags/";
+    if (target.len <= prefix.len) {
+        try respondError(request, .bad_request, "Missing tag ID");
+        return;
+    }
+
+    const id = std.fmt.parseInt(i64, target[prefix.len..], 10) catch {
+        try respondError(request, .bad_request, "Invalid tag ID");
+        return;
+    };
+
+    const pid = app.store.getActivePersonaId() orelse 1;
+    app.store.deleteTag(pid, id) catch {
+        try respondError(request, .internal_server_error, "Delete failed");
+        return;
+    };
+
+    try respondJson(request, "{\"success\":true}");
+    app.events.emit("tags_changed", "tag", "deleted");
 }
 
 const MemoryInput = struct {
