@@ -33,6 +33,7 @@ pub const App = struct {
     ident: ConfigIdent,
     max_recent_messages: usize = 24,
     reflection_enabled: bool = true,
+    include_ai_name: bool = true,
     last_context: LastContext = .{},
     last_context_prompt_buf: [32768]u8 = undefined,
 
@@ -51,6 +52,8 @@ pub const App = struct {
     prompt_episode_compactor_len: usize = 0,
     persona_kernel_buf: [2048]u8 = undefined,
     persona_kernel_len: usize = 0,
+    persona_tone_buf: [256]u8 = undefined,
+    persona_tone_len: usize = 0,
     persona_idle_params: IdleThinker.Params = .{},
 
     pub fn init(allocator: std.mem.Allocator, cli: *Cli) !App {
@@ -195,6 +198,18 @@ pub const App = struct {
         );
         self.persona_kernel_len = kernel_len;
         self.ident.persona_kernel = self.persona_kernel_buf[0..kernel_len];
+
+        // Update tone
+        const tone_len = @min(profile.tone.len, self.persona_tone_buf.len);
+        @memcpy(
+            self.persona_tone_buf[0..tone_len],
+            profile.tone[0..tone_len],
+        );
+        self.persona_tone_len = tone_len;
+        self.ident.default_tone = self.persona_tone_buf[0..tone_len];
+
+        // Update include_ai_name flag
+        self.include_ai_name = profile.include_ai_name;
 
         // Load and update prompts from DB
         var prompts = self.store.getPersonaPrompts(allocator, id) catch {

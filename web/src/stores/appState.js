@@ -10,6 +10,7 @@ export const appState = reactive({
   leftSidebarMode: 'memory',
   selectedMessageIds: new Set(),
   bookmarkedMessageIds: new Set(),
+  reflectionEnabled: true,
 })
 
 export function toggleMessageSelection(msgId) {

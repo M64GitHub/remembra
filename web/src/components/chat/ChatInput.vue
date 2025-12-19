@@ -1,6 +1,7 @@
 <script setup>
 import { ref, computed, onMounted } from 'vue'
 import { reflection } from '../../api/client.js'
+import { appState } from '../../stores/appState.js'
 
 const props = defineProps({
   disabled: Boolean,
@@ -18,6 +19,7 @@ onMounted(async () => {
   try {
     const data = await reflection.get()
     reflectionEnabled.value = data.enabled
+    appState.reflectionEnabled = data.enabled
   } catch (e) {
     console.error('Failed to get reflection status:', e)
   }
@@ -27,6 +29,7 @@ async function toggleReflection() {
   try {
     const data = await reflection.set(!reflectionEnabled.value)
     reflectionEnabled.value = data.enabled
+    appState.reflectionEnabled = data.enabled
   } catch (e) {
     console.error('Failed to toggle reflection:', e)
   }

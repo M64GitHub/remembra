@@ -251,6 +251,8 @@ fn generateReply(
         app.ident.name,
         app.ident.persona_kernel,
         app.ident.prompts,
+        app.reflection_enabled,
+        app.include_ai_name,
     );
     defer {
         if (model_msgs.len != 0 and model_msgs[0].role == .system) {

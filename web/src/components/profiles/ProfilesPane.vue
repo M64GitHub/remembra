@@ -1,6 +1,6 @@
 <script setup>
 import { ref, onMounted, onUnmounted } from 'vue'
-import { profiles as profilesApi } from '../../api/client.js'
+import { profiles as profilesApi, prompts as promptsApi } from '../../api/client.js'
 import { appState, reloadAllData, registerReload } from '../../stores/appState.js'
 import ProviderCard from './ProviderCard.vue'
 import PersonaCard from './PersonaCard.vue'
@@ -135,11 +135,23 @@ function closePersonaEditor() {
 
 async function savePersona(personaData) {
   try {
+    let personaId
     if (modalMode.value === 'create') {
-      await profilesApi.personas.create(personaData)
+      const result = await profilesApi.personas.create(personaData)
+      personaId = result.id
     } else {
       await profilesApi.personas.update(personaData)
+      personaId = personaData.id
     }
+
+    if (personaData.prompts && personaId) {
+      for (const [name, content] of Object.entries(personaData.prompts)) {
+        if (content.trim()) {
+          await promptsApi.set(personaId, name, content)
+        }
+      }
+    }
+
     await loadProfiles()
     closePersonaEditor()
   } catch (e) {
@@ -272,6 +284,7 @@ onUnmounted(() => {
       v-if="showPersonaModal"
       :persona="editingPersona"
       :mode="modalMode"
+      :reflection-enabled="appState.reflectionEnabled"
       @save="savePersona"
       @cancel="closePersonaEditor"
     />
