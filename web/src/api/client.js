@@ -5,6 +5,11 @@
 
 const API_BASE = '';
 
+let networkErrorHandler = null;
+export function setNetworkErrorHandler(handler) {
+  networkErrorHandler = handler;
+}
+
 class ApiError extends Error {
   constructor(status, message, details = null) {
     super(message);
@@ -28,22 +33,37 @@ async function handleResponse(res) {
 }
 
 export async function get(path) {
-  const res = await fetch(API_BASE + path);
-  return handleResponse(res);
+  try {
+    const res = await fetch(API_BASE + path);
+    return handleResponse(res);
+  } catch (err) {
+    if (err instanceof TypeError && networkErrorHandler) networkErrorHandler();
+    throw err;
+  }
 }
 
 export async function post(path, body) {
-  const res = await fetch(API_BASE + path, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(body),
-  });
-  return handleResponse(res);
+  try {
+    const res = await fetch(API_BASE + path, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+    return handleResponse(res);
+  } catch (err) {
+    if (err instanceof TypeError && networkErrorHandler) networkErrorHandler();
+    throw err;
+  }
 }
 
 export async function del(path) {
-  const res = await fetch(API_BASE + path, { method: 'DELETE' });
-  return handleResponse(res);
+  try {
+    const res = await fetch(API_BASE + path, { method: 'DELETE' });
+    return handleResponse(res);
+  } catch (err) {
+    if (err instanceof TypeError && networkErrorHandler) networkErrorHandler();
+    throw err;
+  }
 }
 
 // Specific API methods

@@ -1,4 +1,5 @@
 import { reactive } from 'vue'
+import { health, setNetworkErrorHandler } from '../api/client.js'
 
 // Simple shared state for coordinating requests
 // Single-threaded server can only handle one request at a time
@@ -13,7 +14,30 @@ export const appState = reactive({
   bookmarkedMessageIds: new Set(),
   reflectionEnabled: true,
   showThinkingLive: false,
+  serverStatus: 'checking',
 })
+
+let lastHealthCheckTime = 0
+const HEALTH_CHECK_DEBOUNCE_MS = 2000
+
+export async function checkHealth() {
+  try {
+    await health.check()
+    appState.serverStatus = 'online'
+  } catch {
+    appState.serverStatus = 'offline'
+  }
+  lastHealthCheckTime = Date.now()
+}
+
+function notifyNetworkError() {
+  if (Date.now() - lastHealthCheckTime < HEALTH_CHECK_DEBOUNCE_MS) return
+  if (appState.serverStatus === 'checking') return
+  appState.serverStatus = 'checking'
+  checkHealth()
+}
+
+setNetworkErrorHandler(notifyNetworkError)
 
 export function toggleMessageSelection(msgId) {
   if (appState.selectedMessageIds.has(msgId)) {

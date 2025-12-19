@@ -1,7 +1,6 @@
 <script setup>
-import { ref, onMounted } from 'vue'
-import { health } from '../../api/client.js'
-import { appState } from '../../stores/appState.js'
+import { onMounted } from 'vue'
+import { appState, checkHealth } from '../../stores/appState.js'
 
 defineProps({
   leftOpen: Boolean,
@@ -9,17 +8,6 @@ defineProps({
 })
 
 const emit = defineEmits(['toggle-left', 'toggle-right'])
-
-const serverStatus = ref('checking')
-
-async function checkHealth() {
-  try {
-    await health.check()
-    serverStatus.value = 'online'
-  } catch {
-    serverStatus.value = 'offline'
-  }
-}
 
 onMounted(() => {
   setTimeout(checkHealth, 500)
@@ -50,9 +38,9 @@ onMounted(() => {
     </div>
 
     <div class="topbar-right">
-      <div class="status-indicator" :class="serverStatus">
+      <div class="status-indicator" :class="appState.serverStatus">
         <span class="status-dot"></span>
-        <span class="status-text">{{ serverStatus }}</span>
+        <span class="status-text">{{ appState.serverStatus }}</span>
       </div>
       <button
         class="sidebar-toggle"
