@@ -128,7 +128,7 @@ fn handleConnection(
             return err;
         };
 
-        try handleRequest(allocator, app, &request);
+        try handleRequest(allocator, app, &request, &writer.interface);
 
         if (!request.head.keep_alive) return;
     }
@@ -138,6 +138,7 @@ fn handleRequest(
     allocator: std.mem.Allocator,
     app: *App,
     request: *std.http.Server.Request,
+    conn_writer: anytype,
 ) !void {
     const target = request.head.target;
     const method = request.head.method;
@@ -146,6 +147,10 @@ fn handleRequest(
 
     if (method == .POST and std.mem.eql(u8, target, "/api/chat")) {
         try handleChat(allocator, app, request);
+    } else if (method == .POST and
+        std.mem.eql(u8, target, "/api/chat/stream"))
+    {
+        try handleChatStream(allocator, app, request, conn_writer);
     } else if (method == .POST and std.mem.eql(u8, target, "/api/command")) {
         try handleCommand(allocator, app, request);
     } else if (method == .GET and std.mem.eql(u8, target, "/health")) {
@@ -321,6 +326,67 @@ fn handleChat(
     app.cli.msg(.dbg, "REPLY:\n{s}\n", .{chat_resp.content});
 
     try respondJson(request, response);
+}
+
+fn handleChatStream(
+    allocator: std.mem.Allocator,
+    app: *App,
+    request: *std.http.Server.Request,
+    conn_writer: anytype,
+) !void {
+    const content_len = request.head.content_length orelse {
+        try respondError(request, .bad_request, "Missing Content-Length");
+        return;
+    };
+
+    if (content_len > READ_BUFFER_SIZE) {
+        try respondError(request, .payload_too_large, "Request too large");
+        return;
+    }
+
+    var body_buf: [READ_BUFFER_SIZE]u8 = undefined;
+    const body_reader = request.readerExpectNone(&body_buf);
+
+    const body = body_reader.readAlloc(allocator, @intCast(content_len)) catch {
+        try respondError(request, .bad_request, "Failed to read body");
+        return;
+    };
+    defer allocator.free(body);
+
+    app.cli.msg(.dbg, "Stream request body: {s}", .{body});
+
+    const user_msg = extractUserMessage(allocator, body) catch |err| {
+        app.cli.msg(.wrn, "JSON parse error: {}", .{err});
+        try respondError(request, .bad_request, "Invalid JSON");
+        return;
+    };
+    defer allocator.free(user_msg);
+
+    app.cli.msg(.inf, "User (stream): {s}", .{user_msg});
+
+    request.head.keep_alive = false;
+
+    try conn_writer.writeAll(
+        "HTTP/1.1 200 OK\r\n" ++
+            "Content-Type: text/event-stream\r\n" ++
+            "Cache-Control: no-cache\r\n" ++
+            "Access-Control-Allow-Origin: *\r\n" ++
+            "Connection: close\r\n" ++
+            "\r\n",
+    );
+    try conn_writer.flush();
+
+    ChatEngine.processStreaming(
+        allocator,
+        app,
+        user_msg,
+        conn_writer,
+    ) catch |err| {
+        app.cli.msg(.err, "Streaming error: {}", .{err});
+        conn_writer.writeAll("data: {\"error\":\"Stream failed\"}\n\n") catch {};
+    };
+
+    conn_writer.flush() catch {};
 }
 
 fn handleCommand(

@@ -1,5 +1,5 @@
 //! Ollama provider - HTTP client for Ollama's native /api/chat endpoint.
-//! Uses stream=false for simplicity.
+//! Supports both blocking (stream=false) and streaming (stream=true) modes.
 
 const std = @import("std");
 const Types = @import("Types.zig");
@@ -50,6 +50,285 @@ pub const ProviderOllama = struct {
         cli.msg(.dbg, "RESPONSE:\n{s}", .{response});
 
         return parseResponse(allocator, response);
+    }
+
+    pub fn chatStream(
+        self: *ProviderOllama,
+        allocator: std.mem.Allocator,
+        msgs: []const Types.Message,
+        params: Types.ChatParams,
+        cli: *Cli,
+        writer: anytype,
+    ) !Types.StreamResult {
+        const url = try std.fmt.allocPrint(
+            allocator,
+            "{s}/api/chat",
+            .{trimTrailingSlash(self.base_url)},
+        );
+        defer allocator.free(url);
+
+        const payload = try buildStreamingRequestJson(
+            allocator,
+            self.model,
+            msgs,
+            params,
+        );
+        defer allocator.free(payload);
+
+        cli.msg(.dbg, "STREAM PAYLOAD:\n{s}", .{payload});
+
+        return httpPostStream(allocator, url, payload, cli, writer);
+    }
+
+    fn httpPostStream(
+        allocator: std.mem.Allocator,
+        url: []const u8,
+        payload: []const u8,
+        cli: *Cli,
+        output_writer: anytype,
+    ) !Types.StreamResult {
+        const uri = std.Uri.parse(url) catch return error.InvalidUrl;
+
+        const host = uri.host orelse return error.InvalidUrl;
+        const port: u16 = uri.port orelse 80;
+
+        const stream = std.net.tcpConnectToHost(
+            allocator,
+            host.percent_encoded,
+            port,
+        ) catch |err| {
+            cli.msg(.err, "TCP connect error: {}", .{err});
+            return error.OllamaHttpError;
+        };
+        defer stream.close();
+
+        var write_buf: [4096]u8 = undefined;
+        var buf_writer = stream.writer(&write_buf);
+        var writer = &buf_writer.interface;
+
+        var hdr_buf: [1024]u8 = undefined;
+        const header = std.fmt.bufPrint(
+            &hdr_buf,
+            "POST {s} HTTP/1.1\r\n" ++
+                "Host: {s}\r\n" ++
+                "Content-Type: application/json\r\n" ++
+                "Content-Length: {d}\r\n" ++
+                "Connection: close\r\n" ++
+                "\r\n",
+            .{ uri.path.percent_encoded, host.percent_encoded, payload.len },
+        ) catch return error.InvalidUrl;
+
+        try writer.writeAll(header);
+        try writer.writeAll(payload);
+        try writer.flush();
+
+        var read_buf: [8192]u8 = undefined;
+        var buf_reader = stream.reader(&read_buf);
+
+        var header_done = false;
+        var line_buf: [16384]u8 = undefined;
+
+        const reader_iface = buf_reader.interface();
+
+        while (!header_done) {
+            const line_len = readLine(reader_iface, &line_buf) catch break;
+            if (line_len == 0) {
+                header_done = true;
+            }
+        }
+
+        var stats: Types.StreamStats = .{};
+        var content_buf: std.ArrayListUnmanaged(u8) = .empty;
+        errdefer content_buf.deinit(allocator);
+
+        while (true) {
+            const line_len = readLine(reader_iface, &line_buf) catch |err| {
+                if (err == error.EndOfStream) break;
+                return err;
+            };
+
+            if (line_len == 0) continue;
+
+            const line = line_buf[0..line_len];
+
+            // Skip chunked transfer encoding size lines (hex digits only)
+            const is_chunk_size = blk: {
+                if (line.len > 8) break :blk false;
+                for (line) |c| {
+                    if (!std.ascii.isHex(c)) break :blk false;
+                }
+                break :blk true;
+            };
+            if (is_chunk_size) continue;
+
+            const chunk = parseStreamChunk(allocator, line) catch |err| {
+                cli.msg(.wrn, "Failed to parse chunk: {}", .{err});
+                continue;
+            };
+            defer allocator.free(chunk.content);
+            defer allocator.free(chunk.thinking);
+
+            // Accumulate content for storage
+            if (chunk.content.len > 0) {
+                try content_buf.appendSlice(allocator, chunk.content);
+            }
+
+            writeSseEvent(output_writer, chunk) catch |err| {
+                cli.msg(.wrn, "Failed to write SSE: {}", .{err});
+                return error.WriteError;
+            };
+            output_writer.flush() catch {};
+
+            if (chunk.done) {
+                stats.prompt_tokens = chunk.prompt_tokens;
+                stats.completion_tokens = chunk.completion_tokens;
+                stats.eval_duration_ns = chunk.eval_duration_ns;
+                break;
+            }
+        }
+
+        return .{
+            .stats = stats,
+            .content = try content_buf.toOwnedSlice(allocator),
+        };
+    }
+
+    fn readLine(reader: *std.Io.Reader, buf: []u8) !usize {
+        var pos: usize = 0;
+        while (pos < buf.len) {
+            const byte_slice = reader.take(1) catch |err| {
+                if (pos == 0) return err;
+                break;
+            };
+            const byte = byte_slice[0];
+            if (byte == '\n') {
+                if (pos > 0 and buf[pos - 1] == '\r') {
+                    return pos - 1;
+                }
+                return pos;
+            }
+            buf[pos] = byte;
+            pos += 1;
+        }
+        return pos;
+    }
+
+    fn parseStreamChunk(
+        allocator: std.mem.Allocator,
+        line: []const u8,
+    ) !Types.StreamChunk {
+        var parsed = std.json.parseFromSlice(
+            std.json.Value,
+            allocator,
+            line,
+            .{},
+        ) catch return error.OllamaInvalidJson;
+        defer parsed.deinit();
+
+        const root = parsed.value;
+        if (root != .object) return error.OllamaInvalidJson;
+
+        const done = blk: {
+            const done_val = root.object.get("done") orelse break :blk false;
+            if (done_val != .bool) break :blk false;
+            break :blk done_val.bool;
+        };
+
+        var content_str: []const u8 = "";
+        var thinking_str: []const u8 = "";
+        if (root.object.get("message")) |msg| {
+            if (msg == .object) {
+                if (msg.object.get("content")) |c| {
+                    if (c == .string) content_str = c.string;
+                }
+                if (msg.object.get("thinking")) |t| {
+                    if (t == .string) thinking_str = t.string;
+                }
+            }
+        }
+        const content = try allocator.dupe(u8, content_str);
+        errdefer allocator.free(content);
+        const thinking = try allocator.dupe(u8, thinking_str);
+
+        return .{
+            .content = content,
+            .thinking = thinking,
+            .done = done,
+            .prompt_tokens = extractOptionalInt(root.object, "prompt_eval_count"),
+            .completion_tokens = extractOptionalInt(root.object, "eval_count"),
+            .eval_duration_ns = extractOptionalInt64(root.object, "eval_duration"),
+        };
+    }
+
+    fn writeSseEvent(writer: anytype, chunk: Types.StreamChunk) !void {
+        try writer.writeAll("data: {\"content\":\"");
+        try writeJsonEscaped(writer, chunk.content);
+        try writer.writeAll("\",\"thinking\":\"");
+        try writeJsonEscaped(writer, chunk.thinking);
+        try writer.writeAll("\",\"done\":");
+        if (chunk.done) {
+            try writer.writeAll("true");
+            if (chunk.prompt_tokens) |pt| {
+                try writer.print(",\"prompt_tokens\":{d}", .{pt});
+            }
+            if (chunk.completion_tokens) |ct| {
+                try writer.print(",\"completion_tokens\":{d}", .{ct});
+            }
+            if (chunk.eval_duration_ns) |ns| {
+                const ms = @divFloor(ns, 1_000_000);
+                try writer.print(",\"eval_duration_ms\":{d}", .{ms});
+            }
+        } else {
+            try writer.writeAll("false");
+        }
+        try writer.writeAll("}\n\n");
+    }
+
+    fn writeJsonEscaped(writer: anytype, s: []const u8) !void {
+        for (s) |c| {
+            switch (c) {
+                '\\' => try writer.writeAll("\\\\"),
+                '"' => try writer.writeAll("\\\""),
+                '\n' => try writer.writeAll("\\n"),
+                '\r' => try writer.writeAll("\\r"),
+                '\t' => try writer.writeAll("\\t"),
+                else => try writer.writeByte(c),
+            }
+        }
+    }
+
+    fn buildStreamingRequestJson(
+        allocator: std.mem.Allocator,
+        model: []const u8,
+        msgs: []const Types.Message,
+        params: Types.ChatParams,
+    ) ![]u8 {
+        var out: std.ArrayListUnmanaged(u8) = .empty;
+        errdefer out.deinit(allocator);
+
+        try out.appendSlice(allocator, "{\"model\":\"");
+        try appendJsonEscaped(&out, allocator, model);
+        try out.appendSlice(allocator, "\",\"messages\":[");
+
+        for (msgs, 0..) |m, i| {
+            if (i != 0) try out.append(allocator, ',');
+            try out.appendSlice(allocator, "{\"role\":\"");
+            try out.appendSlice(allocator, Types.roleToStr(m.role));
+            try out.appendSlice(allocator, "\",\"content\":\"");
+            try appendJsonEscaped(&out, allocator, m.content);
+            try out.appendSlice(allocator, "\"}");
+        }
+
+        try out.appendSlice(allocator, "],\"stream\":true");
+
+        try out.appendSlice(allocator, ",\"options\":{");
+        try out.writer(allocator).print(
+            "\"temperature\":{d:.2}",
+            .{params.temperature},
+        );
+        try out.appendSlice(allocator, "}}");
+
+        return out.toOwnedSlice(allocator);
     }
 
     fn trimTrailingSlash(s: []const u8) []const u8 {

@@ -5,9 +5,10 @@ import { appState } from '../../stores/appState.js'
 
 const props = defineProps({
   disabled: Boolean,
+  isStreaming: Boolean,
 })
 
-const emit = defineEmits(['send'])
+const emit = defineEmits(['send', 'stop'])
 
 const inputText = ref('')
 const textareaRef = ref(null)
@@ -83,6 +84,22 @@ function resizeTextarea() {
         </svg>
       </button>
 
+      <button
+        class="thinking-live-toggle"
+        :class="{ disabled: !appState.showThinkingLive }"
+        @click="appState.showThinkingLive = !appState.showThinkingLive"
+        :title="appState.showThinkingLive ? 'Live thinking ON' : 'Live thinking OFF'"
+      >
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"
+             class="thinking-icon" fill="none" stroke="currentColor"
+             stroke-width="1">
+          <circle cx="12" cy="8" r="5"/>
+          <path d="M12 13 C6 13 4 18 4 21 L20 21 C20 18 18 13 12 13"/>
+          <circle cx="17" cy="4" r="1.2" fill="currentColor" stroke="none"/>
+          <circle cx="20" cy="6" r="0.8" fill="currentColor" stroke="none"/>
+        </svg>
+      </button>
+
       <textarea
         ref="textareaRef"
         v-model="inputText"
@@ -95,6 +112,15 @@ function resizeTextarea() {
       ></textarea>
 
       <button
+        v-if="isStreaming"
+        @click="emit('stop')"
+        class="stop-btn"
+        title="Stop generation"
+      >
+        <span class="stop-icon">&#x25A0;</span>
+      </button>
+      <button
+        v-else
         @click="handleSend"
         :disabled="!canSend"
         class="send-btn"
@@ -105,7 +131,11 @@ function resizeTextarea() {
     </div>
 
     <div class="input-hint">
-      <span v-if="disabled" class="hint-sending">
+      <span v-if="isStreaming" class="hint-streaming">
+        <span class="hint-dot"></span>
+        Streaming... click stop to cancel
+      </span>
+      <span v-else-if="disabled" class="hint-sending">
         <span class="hint-dot"></span>
         Thinking...
       </span>
@@ -187,6 +217,27 @@ function resizeTextarea() {
   font-size: 1.25rem;
 }
 
+.stop-btn {
+  width: 44px;
+  height: 44px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: linear-gradient(135deg, #e07850 0%, #c44536 100%);
+  border-radius: var(--border-radius);
+  color: white;
+  transition: all var(--transition-fast);
+}
+
+.stop-btn:hover {
+  transform: scale(1.05);
+  box-shadow: 0 0 20px rgba(196, 69, 54, 0.4);
+}
+
+.stop-icon {
+  font-size: 1rem;
+}
+
 .input-hint {
   margin-top: var(--space-xs);
   font-size: var(--text-xs);
@@ -202,12 +253,24 @@ function resizeTextarea() {
   color: var(--accent-primary);
 }
 
+.hint-streaming {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-xs);
+  color: var(--success);
+}
+
 .hint-dot {
   width: 6px;
   height: 6px;
   background: var(--accent-primary);
   border-radius: 50%;
   animation: pulse 1s infinite;
+}
+
+.hint-streaming .hint-dot {
+  background: var(--success);
 }
 
 kbd {
@@ -249,6 +312,40 @@ kbd {
 }
 
 .reflection-toggle.disabled:hover {
+  filter: brightness(1.1);
+}
+
+.thinking-live-toggle {
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  transition: all var(--transition-fast);
+  align-self: center;
+  color: var(--accent-primary);
+}
+
+.thinking-icon {
+  width: 100%;
+  height: 100%;
+}
+
+.thinking-live-toggle:hover {
+  filter: brightness(1.2);
+  transform: scale(1.1);
+}
+
+.thinking-live-toggle.disabled {
+  color: var(--text-dim);
+  opacity: 0.6;
+}
+
+.thinking-live-toggle.disabled:hover {
   filter: brightness(1.1);
 }
 </style>

@@ -32,7 +32,10 @@ const mdEnabled = ref(true)
 
 const isUser = computed(() => props.message.role === 'user')
 const isSystem = computed(() => props.message.role === 'system')
-const isAssistant = computed(() => !isUser.value && !isSystem.value)
+const isReflection = computed(() => props.message.role === 'reflection')
+const isAssistant = computed(() =>
+  !isUser.value && !isSystem.value && !isReflection.value
+)
 
 const isSelected = computed(() =>
   appState.selectedMessageIds.has(props.message.id)
@@ -71,9 +74,16 @@ const renderedContent = computed(() => {
 })
 
 const formattedStats = computed(() => {
-  const pt = props.message.prompt_tokens
-  const ct = props.message.completion_tokens
-  const ms = props.message.eval_duration_ms
+  const msg = props.message
+
+  // During streaming: show live TPS
+  if (msg.streaming && msg.liveTps) {
+    return `${msg.tokenCount || 0} tokens | ${msg.liveTps} t/s`
+  }
+
+  const pt = msg.prompt_tokens
+  const ct = msg.completion_tokens
+  const ms = msg.eval_duration_ms
 
   if (!pt && !ct && !ms) return null
 
@@ -87,6 +97,11 @@ const formattedStats = computed(() => {
   if (ms != null) {
     const secs = (ms / 1000).toFixed(1)
     parts.push(`${secs}s`)
+  }
+
+  if (ct != null && ms != null && ms > 0) {
+    const tps = (ct / (ms / 1000)).toFixed(1)
+    parts.push(`${tps} t/s`)
   }
 
   return parts.join(' | ')
@@ -174,9 +189,9 @@ onUnmounted(() => {
 
 <template>
   <div class="message-row" :class="{ selected: isSelected, user: isUser }">
-    <!-- Selection circle -->
+    <!-- Selection circle (not for system or reflection) -->
     <button
-      v-if="!isSystem"
+      v-if="!isSystem && !isReflection"
       class="selection-circle"
       :class="{ filled: isSelected }"
       @click="handleSelectionClick"
@@ -193,6 +208,7 @@ onUnmounted(() => {
         user: isUser,
         assistant: isAssistant,
         system: isSystem,
+        reflection: isReflection,
         pending: message.pending,
         error: message.error,
         'out-of-context': !inContext,
@@ -201,8 +217,16 @@ onUnmounted(() => {
       :data-message-id="message.id"
       @click="showTimestamp = !showTimestamp"
     >
+      <!-- Reflection message (special centered bubble with animation) -->
+      <div v-if="isReflection" class="reflection-content">
+        <span class="reflection-dots">
+          <span></span><span></span><span></span>
+        </span>
+        {{ message.content }}
+      </div>
+
       <!-- Assistant/System header -->
-      <div class="message-header" v-if="!isUser">
+      <div class="message-header" v-if="!isUser && !isReflection">
         <span class="message-role">
           {{ isSystem ? 'SYSTEM' : appState.activeAiName }}
         </span>
@@ -250,15 +274,23 @@ onUnmounted(() => {
         >&#x25CB;</span>
       </div>
 
+    <!-- Thinking indicator during streaming -->
+    <div v-if="message.isThinking && message.streaming" class="thinking-indicator">
+      <span class="thinking-dots">
+        <span></span><span></span><span></span>
+      </span>
+      Thinking...
+    </div>
+
     <!-- Markdown rendered content for user and assistant -->
     <div
-      v-if="!isSystem && renderedContent && mdEnabled"
+      v-if="!isSystem && !isReflection && renderedContent && mdEnabled"
       class="message-content markdown-content"
       v-html="renderedContent"
     ></div>
 
     <!-- Plain text for system messages or when markdown disabled -->
-    <div v-else class="message-content">
+    <div v-else-if="!isReflection" class="message-content">
       {{ message.content }}
     </div>
 
@@ -271,14 +303,17 @@ onUnmounted(() => {
         {{ showThinking ? 'Hide thinking' : 'Show thinking' }}
         <span class="toggle-icon">{{ showThinking ? '\u25B2' : '\u25BC' }}</span>
       </button>
-      <div v-if="showThinking" class="thinking-content">
+      <div v-if="showThinking || (message.streaming && appState.showThinkingLive)"
+           class="thinking-content">
         {{ message.thinking }}
       </div>
     </div>
 
-    <div class="message-footer" :class="{ visible: showTimestamp }">
+    <div class="message-footer"
+         :class="{ visible: showTimestamp || message.streaming }">
       <span class="message-time">{{ formattedTime }}</span>
-      <span v-if="isAssistant && formattedStats" class="message-stats">
+      <span v-if="isAssistant && formattedStats" class="message-stats"
+            :class="{ streaming: message.streaming }">
         {{ formattedStats }}
       </span>
       <button
@@ -333,6 +368,47 @@ onUnmounted(() => {
 
 .message-bubble.system .message-content {
   color: var(--text-secondary);
+}
+
+.message-bubble.reflection {
+  align-self: center;
+  max-width: 60%;
+  background: linear-gradient(135deg,
+    rgba(139, 92, 246, 0.12) 0%,
+    rgba(167, 139, 250, 0.08) 100%);
+  border: 1px solid rgba(139, 92, 246, 0.35);
+  border-radius: var(--border-radius);
+  padding: var(--space-sm) var(--space-md);
+}
+
+.reflection-content {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  color: rgba(167, 139, 250, 0.9);
+  font-size: var(--text-sm);
+  font-style: italic;
+}
+
+.reflection-dots {
+  display: flex;
+  gap: 3px;
+}
+
+.reflection-dots span {
+  width: 5px;
+  height: 5px;
+  background: rgba(139, 92, 246, 0.7);
+  border-radius: 50%;
+  animation: reflection-pulse 1.4s ease-in-out infinite;
+}
+
+.reflection-dots span:nth-child(2) { animation-delay: 0.2s; }
+.reflection-dots span:nth-child(3) { animation-delay: 0.4s; }
+
+@keyframes reflection-pulse {
+  0%, 80%, 100% { opacity: 0.3; transform: scale(0.8); }
+  40% { opacity: 1; transform: scale(1); }
 }
 
 .message-bubble.pending {
@@ -442,6 +518,47 @@ onUnmounted(() => {
   padding: 0 var(--space-sm);
   border-left: 1px solid rgba(255, 255, 255, 0.1);
   border-right: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.message-stats.streaming {
+  color: var(--accent-primary);
+  animation: pulse 1.5s ease-in-out infinite;
+}
+
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.6; }
+}
+
+.thinking-indicator {
+  display: flex;
+  align-items: center;
+  gap: var(--space-xs);
+  color: var(--text-dim);
+  font-size: var(--text-xs);
+  font-style: italic;
+  padding: var(--space-xs) 0;
+}
+
+.thinking-dots {
+  display: flex;
+  gap: 3px;
+}
+
+.thinking-dots span {
+  width: 4px;
+  height: 4px;
+  background: var(--accent-primary);
+  border-radius: 50%;
+  animation: thinking-pulse 1.4s ease-in-out infinite;
+}
+
+.thinking-dots span:nth-child(2) { animation-delay: 0.2s; }
+.thinking-dots span:nth-child(3) { animation-delay: 0.4s; }
+
+@keyframes thinking-pulse {
+  0%, 80%, 100% { opacity: 0.3; transform: scale(0.8); }
+  40% { opacity: 1; transform: scale(1); }
 }
 
 .thinking-section {
