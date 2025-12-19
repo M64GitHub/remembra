@@ -14,6 +14,7 @@ import BookmarksPane from './components/bookmarks/BookmarksPane.vue'
 import SettingsPane from './components/settings/SettingsPane.vue'
 import { appState } from './stores/appState.js'
 import { connectEvents } from './stores/eventBus.js'
+import { profiles as profilesApi } from './api/client.js'
 
 const leftSidebarOpen = ref(true)
 const rightSidebarOpen = ref(true)
@@ -41,8 +42,24 @@ function scrollToMessage(messageId) {
   }
 }
 
+async function loadActiveProfile() {
+  try {
+    const [actData, persData] = await Promise.all([
+      profilesApi.active.get(),
+      profilesApi.personas.list(),
+    ])
+    const activeId = actData?.persona_id ?? null
+    appState.activePersonaId = activeId
+    const active = persData.personas?.find(p => p.id === activeId)
+    appState.activeAiName = active?.ai_name || 'AI'
+  } catch (e) {
+    console.error('[App] Failed to load active profile:', e)
+  }
+}
+
 onMounted(() => {
   connectEvents()
+  loadActiveProfile()
 
   const savedLeft = localStorage.getItem('remembra-left-sidebar')
   const savedRight = localStorage.getItem('remembra-right-sidebar')
