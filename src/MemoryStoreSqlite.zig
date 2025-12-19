@@ -367,7 +367,7 @@ pub const MemoryStoreSqlite = struct {
         persona_id: i64,
         role: Types.Role,
         content: []const u8,
-    ) !void {
+    ) !i64 {
         _ = allocator;
         const now = self.nowMs();
 
@@ -386,9 +386,13 @@ pub const MemoryStoreSqlite = struct {
             return error.SqliteStepFailed;
         }
 
+        const msg_id = self.db.lastInsertRowId();
+
         if (role == .user) {
             try self.setMetaI64("last_user_msg_ms", now);
         }
+
+        return msg_id;
     }
 
     pub fn loadRecentMessages(

@@ -151,6 +151,21 @@ async function sendMessage(text) {
     streamAbortController.signal,
     // onChunk
     (chunk) => {
+      // Handle message ID update event
+      if (chunk.user_msg_id && chunk.assistant_msg_id) {
+        const userIdx = messages.value.findIndex(m => m.id === userMsgId)
+        if (userIdx >= 0) {
+          messages.value[userIdx].id = chunk.user_msg_id
+        }
+        const assistantIdx = messages.value.findIndex(
+          m => m.id === assistantMsgId
+        )
+        if (assistantIdx >= 0) {
+          messages.value[assistantIdx].id = chunk.assistant_msg_id
+        }
+        return
+      }
+
       const idx = messages.value.findIndex(m => m.id === assistantMsgId)
       if (idx >= 0) {
         const msg = messages.value[idx]

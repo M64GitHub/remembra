@@ -119,6 +119,8 @@ pub const ChatResponse = struct {
     prompt_tokens: ?u32 = null,
     completion_tokens: ?u32 = null,
     eval_duration_ns: ?i64 = null,
+    user_msg_id: ?i64 = null,
+    assistant_msg_id: ?i64 = null,
 };
 
 pub const StreamChunk = struct {
@@ -139,6 +141,8 @@ pub const StreamStats = struct {
 pub const StreamResult = struct {
     stats: StreamStats,
     content: []const u8,
+    user_msg_id: ?i64 = null,
+    assistant_msg_id: ?i64 = null,
 };
 
 pub const LlmParams = struct {

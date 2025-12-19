@@ -117,7 +117,12 @@ fn generateReplyStreaming(
     writer: anytype,
     allow_ops: bool,
 ) !void {
-    try app.store.insertMessage(allocator, pid, .user, user_input);
+    const user_msg_id = try app.store.insertMessage(
+        allocator,
+        pid,
+        .user,
+        user_input,
+    );
 
     app.cli.msg(.dbg, "injecting {d} memory items", .{ctx.memory.len});
     app.cli.msg(.dbg, "injecting {d} recent messages", .{ctx.recent.len});
@@ -163,7 +168,14 @@ fn generateReplyStreaming(
     }, app.cli, writer);
     defer allocator.free(result.content);
 
-    try app.store.insertMessage(allocator, pid, .assistant, result.content);
+    const assistant_msg_id = try app.store.insertMessage(
+        allocator,
+        pid,
+        .assistant,
+        result.content,
+    );
+
+    try writeMsgIdsEvent(writer, user_msg_id, assistant_msg_id);
 
     if (app.reflection_enabled) {
         try writeReflectionEvent(writer, "started");
@@ -181,6 +193,14 @@ fn generateReplyStreaming(
 
 fn writeReflectionEvent(writer: anytype, status: []const u8) !void {
     try writer.print("data: {{\"reflection\":\"{s}\"}}\n\n", .{status});
+    writer.flush() catch {};
+}
+
+fn writeMsgIdsEvent(writer: anytype, user_id: i64, assistant_id: i64) !void {
+    try writer.print(
+        "data: {{\"user_msg_id\":{d},\"assistant_msg_id\":{d}}}\n\n",
+        .{ user_id, assistant_id },
+    );
     writer.flush() catch {};
 }
 
@@ -329,7 +349,12 @@ fn generateReply(
     ctx: *const TurnContext,
     user_input: []const u8,
 ) !Types.ChatResponse {
-    try app.store.insertMessage(allocator, pid, .user, user_input);
+    const user_msg_id = try app.store.insertMessage(
+        allocator,
+        pid,
+        .user,
+        user_input,
+    );
 
     app.cli.msg(.dbg, "injecting {d} memory items", .{ctx.memory.len});
     app.cli.msg(.dbg, "injecting {d} recent messages", .{ctx.recent.len});
@@ -383,7 +408,12 @@ fn generateReply(
     errdefer allocator.free(resp.content);
     errdefer if (resp.thinking) |t| allocator.free(t);
 
-    try app.store.insertMessage(allocator, pid, .assistant, resp.content);
+    const assistant_msg_id = try app.store.insertMessage(
+        allocator,
+        pid,
+        .assistant,
+        resp.content,
+    );
 
     app.events.emitFmt(
         "chat_completed",
@@ -392,7 +422,15 @@ fn generateReply(
         .{resp.content.len},
     );
 
-    return resp;
+    return .{
+        .content = resp.content,
+        .thinking = resp.thinking,
+        .prompt_tokens = resp.prompt_tokens,
+        .completion_tokens = resp.completion_tokens,
+        .eval_duration_ns = resp.eval_duration_ns,
+        .user_msg_id = user_msg_id,
+        .assistant_msg_id = assistant_msg_id,
+    };
 }
 
 fn runReflection(

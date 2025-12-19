@@ -730,6 +730,13 @@ fn buildOllamaResponse(
         try out.append(allocator, '"');
     }
 
+    if (resp.user_msg_id) |id| {
+        try out.writer(allocator).print(",\"user_msg_id\":{d}", .{id});
+    }
+    if (resp.assistant_msg_id) |id| {
+        try out.writer(allocator).print(",\"assistant_msg_id\":{d}", .{id});
+    }
+
     try out.append(allocator, '}');
 
     return out.toOwnedSlice(allocator);
