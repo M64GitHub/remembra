@@ -101,6 +101,7 @@ pub const SCHEMA =
     \\    idle_threshold_min   INTEGER NOT NULL DEFAULT 15,
     \\    thought_interval_min INTEGER NOT NULL DEFAULT 60,
     \\    compaction_threshold INTEGER NOT NULL DEFAULT 6,
+    \\    include_ai_name      INTEGER NOT NULL DEFAULT 1,
     \\    created_at_ms        INTEGER NOT NULL
     \\);
     \\
@@ -1577,8 +1578,8 @@ pub const MemoryStoreSqlite = struct {
                 " llm_episode_temp, llm_episode_tokens," ++
                 " conf_user_notes, conf_episodes, conf_idle, conf_governor," ++
                 " idle_threshold_min, thought_interval_min, compaction_threshold," ++
-                " created_at_ms) VALUES" ++
-                "(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);",
+                " include_ai_name, created_at_ms) VALUES" ++
+                "(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);",
         );
         defer sqlite.finalize(stmt);
 
@@ -1601,7 +1602,8 @@ pub const MemoryStoreSqlite = struct {
         sqlite.bindInt(stmt, 17, profile.idle_threshold_min);
         sqlite.bindInt(stmt, 18, profile.thought_interval_min);
         sqlite.bindInt(stmt, 19, profile.compaction_threshold);
-        sqlite.bindInt64(stmt, 20, now);
+        sqlite.bindInt(stmt, 20, if (profile.include_ai_name) @as(i32, 1) else 0);
+        sqlite.bindInt64(stmt, 21, now);
 
         if (sqlite.step(stmt) != c.SQLITE_DONE) {
             return error.SqliteStepFailed;
@@ -1624,7 +1626,7 @@ pub const MemoryStoreSqlite = struct {
                 " conf_user_notes=?, conf_episodes=?, conf_idle=?," ++
                 " conf_governor=?," ++
                 " idle_threshold_min=?, thought_interval_min=?," ++
-                " compaction_threshold=? WHERE id=?;",
+                " compaction_threshold=?, include_ai_name=? WHERE id=?;",
         );
         defer sqlite.finalize(stmt);
 
@@ -1647,7 +1649,8 @@ pub const MemoryStoreSqlite = struct {
         sqlite.bindInt(stmt, 17, profile.idle_threshold_min);
         sqlite.bindInt(stmt, 18, profile.thought_interval_min);
         sqlite.bindInt(stmt, 19, profile.compaction_threshold);
-        sqlite.bindInt64(stmt, 20, profile.id);
+        sqlite.bindInt(stmt, 20, if (profile.include_ai_name) @as(i32, 1) else 0);
+        sqlite.bindInt64(stmt, 21, profile.id);
 
         if (sqlite.step(stmt) != c.SQLITE_DONE) {
             return error.SqliteStepFailed;
@@ -1667,7 +1670,7 @@ pub const MemoryStoreSqlite = struct {
                 " llm_episode_temp, llm_episode_tokens," ++
                 " conf_user_notes, conf_episodes, conf_idle, conf_governor," ++
                 " idle_threshold_min, thought_interval_min, compaction_threshold," ++
-                " created_at_ms FROM persona_profiles WHERE id=?;",
+                " include_ai_name, created_at_ms FROM persona_profiles WHERE id=?;",
         );
         defer sqlite.finalize(stmt);
 
@@ -1704,7 +1707,8 @@ pub const MemoryStoreSqlite = struct {
             .idle_threshold_min = @intCast(sqlite.columnInt(stmt, 17)),
             .thought_interval_min = @intCast(sqlite.columnInt(stmt, 18)),
             .compaction_threshold = @intCast(sqlite.columnInt(stmt, 19)),
-            .created_at_ms = sqlite.columnInt64(stmt, 20),
+            .include_ai_name = sqlite.columnInt(stmt, 20) != 0,
+            .created_at_ms = sqlite.columnInt64(stmt, 21),
         };
     }
 
@@ -1720,7 +1724,7 @@ pub const MemoryStoreSqlite = struct {
                 " llm_episode_temp, llm_episode_tokens," ++
                 " conf_user_notes, conf_episodes, conf_idle, conf_governor," ++
                 " idle_threshold_min, thought_interval_min, compaction_threshold," ++
-                " created_at_ms FROM persona_profiles ORDER BY id ASC;",
+                " include_ai_name, created_at_ms FROM persona_profiles ORDER BY id ASC;",
         );
         defer sqlite.finalize(stmt);
 
@@ -1760,7 +1764,8 @@ pub const MemoryStoreSqlite = struct {
                 .idle_threshold_min = @intCast(sqlite.columnInt(stmt, 17)),
                 .thought_interval_min = @intCast(sqlite.columnInt(stmt, 18)),
                 .compaction_threshold = @intCast(sqlite.columnInt(stmt, 19)),
-                .created_at_ms = sqlite.columnInt64(stmt, 20),
+                .include_ai_name = sqlite.columnInt(stmt, 20) != 0,
+                .created_at_ms = sqlite.columnInt64(stmt, 21),
             });
         }
 

@@ -2699,6 +2699,7 @@ fn parsePersonaInput(
         .idle_threshold_min = getJsonI32(root, "idle_threshold_min") orelse 15,
         .thought_interval_min = getJsonI32(root, "thought_interval_min") orelse 60,
         .compaction_threshold = getJsonI32(root, "compaction_threshold") orelse 12,
+        .include_ai_name = getJsonBool(root, "include_ai_name") orelse true,
     };
 }
 
@@ -2762,6 +2763,7 @@ fn parsePersonaUpdateInput(
         .idle_threshold_min = getJsonI32(root, "idle_threshold_min") orelse 15,
         .thought_interval_min = getJsonI32(root, "thought_interval_min") orelse 60,
         .compaction_threshold = getJsonI32(root, "compaction_threshold") orelse 6,
+        .include_ai_name = getJsonBool(root, "include_ai_name") orelse true,
     };
 }
 
@@ -2795,6 +2797,17 @@ fn getJsonI32(
     const val = obj.get(key) orelse return null;
     return switch (val) {
         .integer => @intCast(val.integer),
+        else => null,
+    };
+}
+
+fn getJsonBool(
+    obj: std.json.ObjectMap,
+    key: []const u8,
+) ?bool {
+    const val = obj.get(key) orelse return null;
+    return switch (val) {
+        .bool => val.bool,
         else => null,
     };
 }
@@ -2860,6 +2873,7 @@ fn buildPersonasJson(
                 "\"idle_threshold_min\":{d}," ++
                 "\"thought_interval_min\":{d}," ++
                 "\"compaction_threshold\":{d}," ++
+                "\"include_ai_name\":{s}," ++
                 "\"created_at_ms\":{d}}}",
             .{
                 p.id,
@@ -2882,6 +2896,7 @@ fn buildPersonasJson(
                 p.idle_threshold_min,
                 p.thought_interval_min,
                 p.compaction_threshold,
+                if (p.include_ai_name) "true" else "false",
                 p.created_at_ms,
             },
         );

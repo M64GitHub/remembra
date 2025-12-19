@@ -11,6 +11,10 @@ const props = defineProps({
     type: String,
     default: 'edit',
   },
+  reflectionEnabled: {
+    type: Boolean,
+    default: true,
+  },
 })
 
 const modalTitle = computed(() =>
@@ -51,6 +55,7 @@ const form = ref({
   ai_name: '',
   tone: '',
   persona_kernel: '',
+  include_ai_name: true,
   llm_chat_temp: 0.7,
   llm_chat_tokens: 256,
   llm_reflection_temp: 0.2,
@@ -77,6 +82,7 @@ watch(() => props.persona, async (p) => {
       ai_name: p.ai_name || '',
       tone: p.tone || '',
       persona_kernel: p.persona_kernel || '',
+      include_ai_name: p.include_ai_name ?? true,
       llm_chat_temp: p.llm_chat_temp,
       llm_chat_tokens: p.llm_chat_tokens,
       llm_reflection_temp: p.llm_reflect_temp,
@@ -182,6 +188,7 @@ async function handleSave() {
     ai_name: form.value.ai_name,
     tone: form.value.tone,
     persona_kernel: form.value.persona_kernel || '',
+    include_ai_name: form.value.include_ai_name,
     llm_chat_temp: form.value.llm_chat_temp,
     llm_chat_tokens: form.value.llm_chat_tokens,
     llm_reflect_temp: form.value.llm_reflection_temp,
@@ -197,18 +204,7 @@ async function handleSave() {
     idle_threshold_min: form.value.idle_threshold_min,
     thought_interval_min: form.value.thought_interval_min,
     compaction_threshold: form.value.compaction_threshold,
-  }
-
-  if (props.persona?.id) {
-    try {
-      for (const [name, content] of Object.entries(promptTemplates.value)) {
-        if (content.trim()) {
-          await promptsApi.set(props.persona.id, name, content)
-        }
-      }
-    } catch (e) {
-      console.error('[Prompts] Save error:', e)
-    }
+    prompts: promptTemplates.value,
   }
 
   emit('save', data)
@@ -244,7 +240,56 @@ function formatPercent(val) {
         <button class="close-btn" @click="emit('cancel')">&times;</button>
       </div>
 
-      <div class="modal-nav">
+      <!-- Simplified view when reflection is disabled -->
+      <div v-if="!reflectionEnabled" class="modal-body">
+        <div class="section">
+          <p class="section-desc">
+            Simple chat mode - configure basic persona settings.
+          </p>
+
+          <div class="form-group">
+            <label>Persona Name</label>
+            <input type="text" v-model="form.name" placeholder="e.g. Default" />
+          </div>
+
+          <div class="form-group">
+            <label>AI Name</label>
+            <div class="ai-name-row">
+              <input
+                type="text"
+                v-model="form.ai_name"
+                placeholder="e.g. REMEMBRA"
+              />
+              <label class="checkbox-label">
+                <input
+                  type="checkbox"
+                  v-model="form.include_ai_name"
+                />
+                Include in system prompt
+              </label>
+            </div>
+          </div>
+
+          <div class="form-group">
+            <label>System Prompt</label>
+            <textarea
+              v-model="form.persona_kernel"
+              rows="12"
+              placeholder="Define the AI's behavior and personality..."
+              class="kernel-textarea"
+            ></textarea>
+            <small class="field-help">
+              This text is sent as the system prompt to the LLM.
+              <span v-if="form.include_ai_name">
+                It will be prefixed with "You are {{ form.ai_name }}."
+              </span>
+            </small>
+          </div>
+        </div>
+      </div>
+
+      <!-- Full view when reflection is enabled -->
+      <div v-if="reflectionEnabled" class="modal-nav">
         <button
           class="nav-btn"
           :class="{ active: activeSection === 'basic' }"
@@ -277,7 +322,7 @@ function formatPercent(val) {
         >Reflection</button>
       </div>
 
-      <div class="modal-body">
+      <div v-if="reflectionEnabled" class="modal-body">
         <div v-show="activeSection === 'basic'" class="section">
           <div class="form-group">
             <label>Persona Name</label>
@@ -517,7 +562,7 @@ function formatPercent(val) {
               <textarea
                 v-model="promptTemplates.system_spine"
                 placeholder="Core system prompt"
-                rows="4"
+                rows="6"
               ></textarea>
             </div>
 
@@ -526,7 +571,7 @@ function formatPercent(val) {
               <textarea
                 v-model="promptTemplates.reflector_system"
                 placeholder="Reflection analysis prompt"
-                rows="4"
+                rows="6"
               ></textarea>
             </div>
 
@@ -535,7 +580,7 @@ function formatPercent(val) {
               <textarea
                 v-model="promptTemplates.reflector_no_ops"
                 placeholder="No-operation triggers"
-                rows="3"
+                rows="4"
               ></textarea>
             </div>
 
@@ -544,7 +589,7 @@ function formatPercent(val) {
               <textarea
                 v-model="promptTemplates.idle_thinker"
                 placeholder="Idle thought generation prompt"
-                rows="4"
+                rows="6"
               ></textarea>
             </div>
 
@@ -553,7 +598,7 @@ function formatPercent(val) {
               <textarea
                 v-model="promptTemplates.episode_compactor"
                 placeholder="Episode summary generation prompt"
-                rows="4"
+                rows="6"
               ></textarea>
             </div>
           </div>
@@ -633,8 +678,9 @@ function formatPercent(val) {
   border-radius: var(--border-radius-lg);
   border: var(--border-subtle);
   width: 90%;
-  max-width: 600px;
-  max-height: 85vh;
+  max-width: 900px;
+  min-height: 70vh;
+  max-height: 95vh;
   display: flex;
   flex-direction: column;
   box-shadow: 0 20px 40px rgba(0, 0, 0, 0.4);
@@ -741,6 +787,39 @@ function formatPercent(val) {
 .form-group input[type="text"]:focus {
   outline: none;
   border-color: var(--accent-primary);
+}
+
+.ai-name-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-md);
+}
+
+.ai-name-row input[type="text"] {
+  flex: 1;
+  padding: var(--space-sm);
+  background: var(--bg-secondary);
+  border: var(--border-subtle);
+  border-radius: var(--border-radius);
+  color: var(--text-primary);
+  font-size: var(--text-sm);
+}
+
+.checkbox-label {
+  display: flex;
+  align-items: center;
+  gap: var(--space-xs);
+  font-size: var(--text-sm);
+  color: var(--text-secondary);
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.checkbox-label input[type="checkbox"] {
+  width: 16px;
+  height: 16px;
+  accent-color: var(--accent-primary);
+  cursor: pointer;
 }
 
 .form-group input[type="number"] {
@@ -880,7 +959,6 @@ function formatPercent(val) {
 }
 
 .prompts-section {
-  max-height: 400px;
   overflow-y: auto;
 }
 

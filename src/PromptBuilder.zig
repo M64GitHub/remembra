@@ -17,6 +17,8 @@ pub const PromptBuilder = struct {
         ai_name: []const u8,
         persona_kernel: []const u8,
         prompts: PromptTemplates,
+        reflection_enabled: bool,
+        include_ai_name: bool,
     ) ![]Types.Message {
         var msgs: std.ArrayList(Types.Message) = .empty;
         errdefer msgs.deinit(allocator);
@@ -32,6 +34,8 @@ pub const PromptBuilder = struct {
             ai_name,
             persona_kernel,
             prompts.system_spine,
+            reflection_enabled,
+            include_ai_name,
         );
         errdefer allocator.free(system_spine);
 
@@ -63,10 +67,26 @@ pub const PromptBuilder = struct {
         ai_name: []const u8,
         persona_kernel: []const u8,
         spine_template: []const u8,
+        reflection_enabled: bool,
+        include_ai_name: bool,
     ) ![]u8 {
         var out: std.ArrayList(u8) = .empty;
         errdefer out.deinit(allocator);
 
+        // Simplified prompt when reflection is disabled
+        if (!reflection_enabled) {
+            if (include_ai_name) {
+                try out.writer(allocator).print("You are {s}.\n", .{ai_name});
+                try out.appendSlice(allocator, ai_name);
+            }
+            if (persona_kernel.len > 0) {
+                try out.appendSlice(allocator, persona_kernel);
+                try out.append(allocator, '\n');
+            }
+            return out.toOwnedSlice(allocator);
+        }
+
+        // Full prompt with memory system when reflection is enabled
         try out.writer(allocator).print("You are {s}.\n", .{ai_name});
         try out.appendSlice(allocator, spine_template);
         try out.appendSlice(allocator, "\n\n");
