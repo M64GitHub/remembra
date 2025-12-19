@@ -374,9 +374,9 @@ onUnmounted(() => {
   align-self: center;
   max-width: 60%;
   background: linear-gradient(135deg,
-    rgba(6, 182, 212, 0.15) 0%,
-    rgba(34, 211, 238, 0.1) 100%);
-  border: 1px solid rgba(6, 182, 212, 0.4);
+    rgba(139, 92, 246, 0.12) 0%,
+    rgba(167, 139, 250, 0.08) 100%);
+  border: 1px solid rgba(139, 92, 246, 0.35);
   border-radius: var(--border-radius);
   padding: var(--space-sm) var(--space-md);
 }
@@ -385,7 +385,7 @@ onUnmounted(() => {
   display: flex;
   align-items: center;
   gap: var(--space-sm);
-  color: rgba(6, 182, 212, 0.9);
+  color: rgba(167, 139, 250, 0.9);
   font-size: var(--text-sm);
   font-style: italic;
 }
@@ -398,7 +398,7 @@ onUnmounted(() => {
 .reflection-dots span {
   width: 5px;
   height: 5px;
-  background: rgba(6, 182, 212, 0.8);
+  background: rgba(139, 92, 246, 0.7);
   border-radius: 50%;
   animation: reflection-pulse 1.4s ease-in-out infinite;
 }
