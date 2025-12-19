@@ -2,6 +2,7 @@
 import { ref, onMounted, onUnmounted, watch } from 'vue'
 import { thoughts as thoughtsApi } from '../../api/client.js'
 import { appState, registerReload } from '../../stores/appState.js'
+import { onEvent } from '../../stores/eventBus.js'
 import ThoughtCard from './ThoughtCard.vue'
 
 const thoughts = ref([])
@@ -39,19 +40,25 @@ watch(
   { immediate: true }
 )
 
-// Auto-refresh after chat completes (new thoughts may have been created)
-watch(
-  () => appState.isChatBusy,
-  (newVal, oldVal) => {
-    if (oldVal === true && newVal === false) {
-      setTimeout(loadThoughts, 1500)
-    }
-  }
-)
-
 let unregisterReload = null
+let unsubscribeThought = null
+let unsubscribeEpisode = null
 
 onMounted(() => {
+  // Listen for thought_generated events from backend
+  unsubscribeThought = onEvent('thought_generated', () => {
+    if (appState.leftSidebarMode === 'memory') {
+      loadThoughts()
+    }
+  })
+
+  // Listen for episode_compacted events from backend
+  unsubscribeEpisode = onEvent('episode_compacted', () => {
+    if (appState.leftSidebarMode === 'memory') {
+      loadThoughts()
+    }
+  })
+
   // Register for persona change reloads
   unregisterReload = registerReload('thoughts', async () => {
     thoughts.value = []
@@ -62,6 +69,8 @@ onMounted(() => {
 })
 
 onUnmounted(() => {
+  if (unsubscribeThought) unsubscribeThought()
+  if (unsubscribeEpisode) unsubscribeEpisode()
   if (unregisterReload) unregisterReload()
 })
 </script>

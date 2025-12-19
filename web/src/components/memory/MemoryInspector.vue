@@ -2,6 +2,7 @@
 import { ref, onMounted, onUnmounted, computed, watch } from 'vue'
 import { memories as memoriesApi } from '../../api/client.js'
 import { appState, registerReload } from '../../stores/appState.js'
+import { onEvent } from '../../stores/eventBus.js'
 import MemoryCard from './MemoryCard.vue'
 
 const memories = ref([])
@@ -107,19 +108,17 @@ watch(
   { immediate: true }
 )
 
-// Auto-refresh after chat completes (new memories may have been created)
-watch(
-  () => appState.isChatBusy,
-  (newVal, oldVal) => {
-    if (oldVal === true && newVal === false) {
-      setTimeout(loadMemories, 1000)
-    }
-  }
-)
-
 let unregisterReload = null
+let unsubscribeMemory = null
 
 onMounted(() => {
+  // Listen for memory_stored events from backend
+  unsubscribeMemory = onEvent('memory_stored', () => {
+    if (appState.leftSidebarMode === 'memory') {
+      loadMemories()
+    }
+  })
+
   // Register for persona change reloads
   unregisterReload = registerReload('memories', async () => {
     memories.value = []
@@ -130,6 +129,7 @@ onMounted(() => {
 })
 
 onUnmounted(() => {
+  if (unsubscribeMemory) unsubscribeMemory()
   if (unregisterReload) unregisterReload()
 })
 </script>
