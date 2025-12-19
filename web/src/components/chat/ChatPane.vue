@@ -128,6 +128,7 @@ async function sendMessage(text) {
   })
 
   const assistantMsgId = userMsgId + 1
+  const reflectionMsgId = userMsgId + 2
   const streamStartTime = Date.now()
   messages.value.push({
     id: assistantMsgId,
@@ -194,8 +195,12 @@ async function sendMessage(text) {
 
       isSending.value = false
       isStreaming.value = false
-      appState.isChatBusy = false
       streamAbortController = null
+
+      // Only clear busy state if reflection is disabled
+      if (!appState.reflectionEnabled) {
+        appState.isChatBusy = false
+      }
     },
     // onError
     (err) => {
@@ -217,6 +222,23 @@ async function sendMessage(text) {
       isStreaming.value = false
       appState.isChatBusy = false
       streamAbortController = null
+    },
+    // onReflection
+    (status) => {
+      if (status === 'started') {
+        messages.value.push({
+          id: reflectionMsgId,
+          role: 'reflection',
+          content: 'Reflecting on conversation...',
+          created_at_ms: Date.now(),
+        })
+      } else if (status === 'completed') {
+        const idx = messages.value.findIndex(m => m.id === reflectionMsgId)
+        if (idx >= 0) {
+          messages.value.splice(idx, 1)
+        }
+        appState.isChatBusy = false
+      }
     }
   )
 }

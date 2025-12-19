@@ -88,7 +88,7 @@ pub fn processStreaming(
 ) !void {
     const pid = app.store.getActivePersonaId() orelse 1;
 
-    _ = checkSecurity(app, pid, user_input);
+    const allow_ops = checkSecurity(app, pid, user_input);
 
     if (app.reflection_enabled) {
         try runIdleThinker(allocator, app, pid);
@@ -97,7 +97,15 @@ pub fn processStreaming(
     var ctx = try gatherContext(allocator, app, pid);
     defer ctx.deinit(allocator);
 
-    try generateReplyStreaming(allocator, app, pid, &ctx, user_input, writer);
+    try generateReplyStreaming(
+        allocator,
+        app,
+        pid,
+        &ctx,
+        user_input,
+        writer,
+        allow_ops,
+    );
 }
 
 fn generateReplyStreaming(
@@ -107,6 +115,7 @@ fn generateReplyStreaming(
     ctx: *const TurnContext,
     user_input: []const u8,
     writer: anytype,
+    allow_ops: bool,
 ) !void {
     try app.store.insertMessage(allocator, pid, .user, user_input);
 
@@ -158,6 +167,13 @@ fn generateReplyStreaming(
     // Store the assistant's response to the database
     try app.store.insertMessage(allocator, pid, .assistant, result.content);
 
+    // Run reflection if enabled (same as non-streaming flow)
+    if (app.reflection_enabled) {
+        try writeReflectionEvent(writer, "started");
+        try runReflection(allocator, app, pid, ctx, result.content, allow_ops);
+        try writeReflectionEvent(writer, "completed");
+    }
+
     app.events.emitFmt(
         pid,
         .chat_completed,
@@ -165,6 +181,11 @@ fn generateReplyStreaming(
         "streaming",
         .{},
     );
+}
+
+fn writeReflectionEvent(writer: anytype, status: []const u8) !void {
+    try writer.print("data: {{\"reflection\":\"{s}\"}}\n\n", .{status});
+    writer.flush() catch {};
 }
 
 fn checkSecurity(app: *App, pid: i64, input: []const u8) bool {

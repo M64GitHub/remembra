@@ -57,7 +57,7 @@ export const chat = {
     if (before !== null) params.set('before', String(before));
     return get(`/api/messages?${params}`);
   },
-  stream: async (message, signal, onChunk, onComplete, onError) => {
+  stream: async (message, signal, onChunk, onComplete, onError, onReflection) => {
     try {
       const response = await fetch(API_BASE + '/api/chat/stream', {
         method: 'POST',
@@ -88,11 +88,13 @@ export const chat = {
         for (const line of lines) {
           if (line.startsWith('data: ')) {
             try {
-              const chunk = JSON.parse(line.slice(6));
-              if (chunk.done) {
-                onComplete(chunk);
+              const data = JSON.parse(line.slice(6));
+              if (data.reflection && onReflection) {
+                onReflection(data.reflection);
+              } else if (data.done) {
+                onComplete(data);
               } else {
-                onChunk(chunk);
+                onChunk(data);
               }
             } catch (e) {
               // Skip malformed JSON lines
@@ -103,11 +105,13 @@ export const chat = {
 
       if (buffer.startsWith('data: ')) {
         try {
-          const chunk = JSON.parse(buffer.slice(6));
-          if (chunk.done) {
-            onComplete(chunk);
+          const data = JSON.parse(buffer.slice(6));
+          if (data.reflection && onReflection) {
+            onReflection(data.reflection);
+          } else if (data.done) {
+            onComplete(data);
           } else {
-            onChunk(chunk);
+            onChunk(data);
           }
         } catch (e) {
           // Skip

@@ -32,7 +32,10 @@ const mdEnabled = ref(true)
 
 const isUser = computed(() => props.message.role === 'user')
 const isSystem = computed(() => props.message.role === 'system')
-const isAssistant = computed(() => !isUser.value && !isSystem.value)
+const isReflection = computed(() => props.message.role === 'reflection')
+const isAssistant = computed(() =>
+  !isUser.value && !isSystem.value && !isReflection.value
+)
 
 const isSelected = computed(() =>
   appState.selectedMessageIds.has(props.message.id)
@@ -186,9 +189,9 @@ onUnmounted(() => {
 
 <template>
   <div class="message-row" :class="{ selected: isSelected, user: isUser }">
-    <!-- Selection circle -->
+    <!-- Selection circle (not for system or reflection) -->
     <button
-      v-if="!isSystem"
+      v-if="!isSystem && !isReflection"
       class="selection-circle"
       :class="{ filled: isSelected }"
       @click="handleSelectionClick"
@@ -205,6 +208,7 @@ onUnmounted(() => {
         user: isUser,
         assistant: isAssistant,
         system: isSystem,
+        reflection: isReflection,
         pending: message.pending,
         error: message.error,
         'out-of-context': !inContext,
@@ -213,8 +217,16 @@ onUnmounted(() => {
       :data-message-id="message.id"
       @click="showTimestamp = !showTimestamp"
     >
+      <!-- Reflection message (special centered bubble with animation) -->
+      <div v-if="isReflection" class="reflection-content">
+        <span class="reflection-dots">
+          <span></span><span></span><span></span>
+        </span>
+        {{ message.content }}
+      </div>
+
       <!-- Assistant/System header -->
-      <div class="message-header" v-if="!isUser">
+      <div class="message-header" v-if="!isUser && !isReflection">
         <span class="message-role">
           {{ isSystem ? 'SYSTEM' : appState.activeAiName }}
         </span>
@@ -272,13 +284,13 @@ onUnmounted(() => {
 
     <!-- Markdown rendered content for user and assistant -->
     <div
-      v-if="!isSystem && renderedContent && mdEnabled"
+      v-if="!isSystem && !isReflection && renderedContent && mdEnabled"
       class="message-content markdown-content"
       v-html="renderedContent"
     ></div>
 
     <!-- Plain text for system messages or when markdown disabled -->
-    <div v-else class="message-content">
+    <div v-else-if="!isReflection" class="message-content">
       {{ message.content }}
     </div>
 
@@ -356,6 +368,47 @@ onUnmounted(() => {
 
 .message-bubble.system .message-content {
   color: var(--text-secondary);
+}
+
+.message-bubble.reflection {
+  align-self: center;
+  max-width: 60%;
+  background: linear-gradient(135deg,
+    rgba(6, 182, 212, 0.15) 0%,
+    rgba(34, 211, 238, 0.1) 100%);
+  border: 1px solid rgba(6, 182, 212, 0.4);
+  border-radius: var(--border-radius);
+  padding: var(--space-sm) var(--space-md);
+}
+
+.reflection-content {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  color: rgba(6, 182, 212, 0.9);
+  font-size: var(--text-sm);
+  font-style: italic;
+}
+
+.reflection-dots {
+  display: flex;
+  gap: 3px;
+}
+
+.reflection-dots span {
+  width: 5px;
+  height: 5px;
+  background: rgba(6, 182, 212, 0.8);
+  border-radius: 50%;
+  animation: reflection-pulse 1.4s ease-in-out infinite;
+}
+
+.reflection-dots span:nth-child(2) { animation-delay: 0.2s; }
+.reflection-dots span:nth-child(3) { animation-delay: 0.4s; }
+
+@keyframes reflection-pulse {
+  0%, 80%, 100% { opacity: 0.3; transform: scale(0.8); }
+  40% { opacity: 1; transform: scale(1); }
 }
 
 .message-bubble.pending {
