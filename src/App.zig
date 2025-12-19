@@ -83,7 +83,7 @@ pub const App = struct {
 
         // Create SSE event server (heap-allocated for thread safety)
         const event_server = try allocator.create(EventServer);
-        event_server.* = EventServer.init(allocator, conn.event_port);
+        event_server.* = EventServer.init(allocator, conn.event_port, cli);
 
         return App{
             .cli = cli,

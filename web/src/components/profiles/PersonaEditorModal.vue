@@ -285,6 +285,32 @@ function formatPercent(val) {
               </span>
             </small>
           </div>
+
+          <div class="llm-group">
+            <div class="llm-label">Chat</div>
+            <div class="llm-controls">
+              <div class="control-item">
+                <span class="control-label">Temperature</span>
+                <input
+                  type="range"
+                  min="0"
+                  max="1"
+                  step="0.1"
+                  v-model.number="form.llm_chat_temp"
+                />
+                <span class="control-value">{{ form.llm_chat_temp }}</span>
+              </div>
+              <div class="control-item">
+                <span class="control-label">Max Tokens</span>
+                <input
+                  type="number"
+                  min="64"
+                  max="4096"
+                  v-model.number="form.llm_chat_tokens"
+                />
+              </div>
+            </div>
+          </div>
         </div>
       </div>
 

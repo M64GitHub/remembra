@@ -1,6 +1,6 @@
 //! SSE Event Server - runs in separate thread for real-time event broadcasting.
-
 const std = @import("std");
+const Cli = @import("Cli.zig").Cli;
 
 pub const EventServer = struct {
     allocator: std.mem.Allocator,
@@ -8,19 +8,25 @@ pub const EventServer = struct {
     mutex: std.Thread.Mutex,
     port: u16,
     running: bool,
+    cli: *Cli,
 
     const Connection = struct {
         stream: std.net.Stream,
         active: bool,
     };
 
-    pub fn init(allocator: std.mem.Allocator, port: u16) EventServer {
+    pub fn init(
+        allocator: std.mem.Allocator,
+        port: u16,
+        cli: *Cli,
+    ) EventServer {
         return .{
             .allocator = allocator,
             .connections = .empty,
             .mutex = .{},
             .port = port,
             .running = false,
+            .cli = cli,
         };
     }
 
@@ -35,14 +41,17 @@ pub const EventServer = struct {
         self.connections.deinit(self.allocator);
     }
 
-    pub fn run(self: *EventServer) void {
+    pub fn run(
+        self: *EventServer,
+    ) void {
         self.running = true;
 
         const address = std.net.Address.initIp4(.{ 0, 0, 0, 0 }, self.port);
         var server = address.listen(.{
             .reuse_address = true,
         }) catch |err| {
-            std.debug.print(
+            self.cli.msg(
+                .err,
                 "[EventServer] Failed to listen on port {}: {}\n",
                 .{ self.port, err },
             );
@@ -50,13 +59,21 @@ pub const EventServer = struct {
         };
         defer server.deinit();
 
-        std.debug.print("[EventServer] Listening on port {}\n", .{self.port});
+        self.cli.msg(
+            .ok,
+            "[EventServer] Listening on port {}\n",
+            .{self.port},
+        );
 
         while (self.running) {
             const conn_result = server.accept();
             if (conn_result) |client| {
                 self.handleConnection(client.stream) catch |err| {
-                    std.debug.print("[EventServer] Connection error: {}\n", .{err});
+                    self.cli.msg(
+                        .err,
+                        "[EventServer] Connection error: {}\n",
+                        .{err},
+                    );
                 };
             } else |_| {
                 continue;

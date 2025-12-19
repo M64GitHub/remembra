@@ -143,9 +143,6 @@ function saveSidebarState() {
           <Panel title="Thoughts" icon="thoughts" :default-open="false">
             <ThoughtsViewer />
           </Panel>
-          <Panel title="Profiles" icon="profiles" :default-open="false">
-            <ProfilesPane />
-          </Panel>
         </template>
 
         <template v-else-if="leftSidebarMode === 'store'">
@@ -160,6 +157,9 @@ function saveSidebarState() {
         <template v-else-if="leftSidebarMode === 'settings'">
           <Panel title="Settings" icon="settings" :default-open="true">
             <SettingsPane />
+          </Panel>
+          <Panel title="Profiles" icon="profiles" :default-open="true">
+            <ProfilesPane />
           </Panel>
         </template>
       </Sidebar>
