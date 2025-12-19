@@ -1369,6 +1369,7 @@ fn handlePostStore(
         "{\"id\":0}";
 
     try respondJson(request, resp);
+    app.events.emit("store_changed", "item", "created");
 }
 
 fn handleUpdateStore(
@@ -1439,6 +1440,7 @@ fn handleUpdateStore(
     };
 
     try respondJson(request, "{\"success\":true}");
+    app.events.emit("store_changed", "item", "updated");
 }
 
 fn handleDeleteStore(
@@ -1467,6 +1469,7 @@ fn handleDeleteStore(
     };
 
     try respondJson(request, "{\"success\":true}");
+    app.events.emit("store_changed", "item", "deleted");
 }
 
 fn handleGetBookmarks(
@@ -1576,6 +1579,7 @@ fn handlePostBookmarks(
     }
 
     try respondJson(request, "{\"success\":true}");
+    app.events.emit("bookmarks_changed", "bookmark", "created");
 }
 
 fn handleDeleteBookmark(
@@ -1615,6 +1619,7 @@ fn handleDeleteBookmark(
     }
 
     try respondJson(request, "{\"success\":true}");
+    app.events.emit("bookmarks_changed", "bookmark", "deleted");
 }
 
 const MemoryInput = struct {

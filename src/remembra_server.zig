@@ -25,6 +25,9 @@ pub fn main() !void {
     defer app.deinit(allocator);
     app.initEvents();
 
+    // Start SSE event server in separate thread
+    _ = try app.startEventServer();
+
     // Load active persona from DB at startup
     app.reloadActiveProvider(allocator) catch {};
     app.reloadActivePersona(allocator) catch {};
@@ -33,7 +36,8 @@ pub fn main() !void {
     defer server.deinit();
 
     cli.msg(.hil, "REMEMBRA Server", .{});
-    cli.msg(.inf, "Ollama-compatible API on http://127.0.0.1:8080", .{});
+    cli.msg(.inf, "REST API on http://127.0.0.1:8080", .{});
+    cli.msg(.inf, "SSE events on http://127.0.0.1:8081", .{});
     cli.msg(.inf, "POST /api/chat - Chat endpoint", .{});
     cli.msg(.inf, "GET /health - Health check", .{});
 

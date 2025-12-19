@@ -60,7 +60,7 @@ pub fn processAndReturn(
 ) !Types.ChatResponse {
     const pid = app.store.getActivePersonaId() orelse 1;
 
-    const allow_ops = checkSecurity(app, pid, user_input);
+    const allow_ops = checkSecurity(app, user_input);
 
     if (app.reflection_enabled) {
         try runIdleThinker(allocator, app, pid);
@@ -88,7 +88,7 @@ pub fn processStreaming(
 ) !void {
     const pid = app.store.getActivePersonaId() orelse 1;
 
-    const allow_ops = checkSecurity(app, pid, user_input);
+    const allow_ops = checkSecurity(app, user_input);
 
     if (app.reflection_enabled) {
         try runIdleThinker(allocator, app, pid);
@@ -123,8 +123,7 @@ fn generateReplyStreaming(
     app.cli.msg(.dbg, "injecting {d} recent messages", .{ctx.recent.len});
 
     app.events.emitFmt(
-        pid,
-        .context_built,
+        "context_built",
         "chat",
         "memory={d} recent={d}",
         .{ ctx.memory.len, ctx.recent.len },
@@ -164,10 +163,8 @@ fn generateReplyStreaming(
     }, app.cli, writer);
     defer allocator.free(result.content);
 
-    // Store the assistant's response to the database
     try app.store.insertMessage(allocator, pid, .assistant, result.content);
 
-    // Run reflection if enabled (same as non-streaming flow)
     if (app.reflection_enabled) {
         try writeReflectionEvent(writer, "started");
         try runReflection(allocator, app, pid, ctx, result.content, allow_ops);
@@ -175,11 +172,10 @@ fn generateReplyStreaming(
     }
 
     app.events.emitFmt(
-        pid,
-        .chat_completed,
+        "chat_completed",
         "chat",
-        "streaming",
-        .{},
+        "streaming len={d}",
+        .{result.content.len},
     );
 }
 
@@ -188,7 +184,7 @@ fn writeReflectionEvent(writer: anytype, status: []const u8) !void {
     writer.flush() catch {};
 }
 
-fn checkSecurity(app: *App, pid: i64, input: []const u8) bool {
+fn checkSecurity(app: *App, input: []const u8) bool {
     const guard = InjectionGuard.check(input);
     if (guard.is_attack) {
         app.cli.msg(
@@ -197,7 +193,7 @@ fn checkSecurity(app: *App, pid: i64, input: []const u8) bool {
                 "Memory ops disabled.",
             .{guard.reason},
         );
-        app.events.emit(pid, .security_warning, "injection", guard.reason);
+        app.events.emit("security_warning", "injection", guard.reason);
     }
     return !guard.is_attack;
 }
@@ -339,8 +335,7 @@ fn generateReply(
     app.cli.msg(.dbg, "injecting {d} recent messages", .{ctx.recent.len});
 
     app.events.emitFmt(
-        pid,
-        .context_built,
+        "context_built",
         "chat",
         "memory={d} recent={d}",
         .{ ctx.memory.len, ctx.recent.len },
@@ -391,8 +386,7 @@ fn generateReply(
     try app.store.insertMessage(allocator, pid, .assistant, resp.content);
 
     app.events.emitFmt(
-        pid,
-        .chat_completed,
+        "chat_completed",
         "chat",
         "len={d}",
         .{resp.content.len},
@@ -434,7 +428,6 @@ fn runReflection(
     const proposals = try Reflector.run(
         allocator,
         &app.provider,
-        pid,
         ctx.identity,
         ctx.memory,
         reflection_context,
@@ -480,8 +473,7 @@ fn runReflection(
             );
             for (proposals) |p| {
                 app.events.emit(
-                    pid,
-                    .governor_blocked,
+                    "governor_blocked",
                     p.subject,
                     "no explicit intent",
                 );

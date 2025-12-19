@@ -1,7 +1,8 @@
 <script setup>
-import { ref, onMounted } from 'vue'
+import { ref, onMounted, onUnmounted, computed } from 'vue'
 import { store } from '../../api/client.js'
 import { registerReload } from '../../stores/appState.js'
+import { onEvent } from '../../stores/eventBus.js'
 import StoreCard from './StoreCard.vue'
 import StoreEditorModal from './StoreEditorModal.vue'
 
@@ -58,13 +59,18 @@ const filteredItems = computed(() => {
   return items.value.filter(i => i.content.toLowerCase().includes(q))
 })
 
-import { computed } from 'vue'
-
 let unregisterReload = null
+let unsubscribeEvent = null
 
 onMounted(() => {
   loadItems()
   unregisterReload = registerReload('store', loadItems)
+  unsubscribeEvent = onEvent('store_changed', loadItems)
+})
+
+onUnmounted(() => {
+  if (unregisterReload) unregisterReload()
+  if (unsubscribeEvent) unsubscribeEvent()
 })
 </script>
 

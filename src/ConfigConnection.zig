@@ -5,4 +5,5 @@ pub const ConfigConnection = struct {
     ollama_model: []const u8 = "gpt-oss",
 
     database_path: [:0]const u8 = "remembra.db",
+    event_port: u16 = 8081,
 };

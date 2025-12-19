@@ -5,6 +5,7 @@ const version = @import("version.zig");
 const Cli = @import("Cli.zig").Cli;
 const MemoryStoreSqlite = @import("MemoryStoreSqlite.zig").MemoryStoreSqlite;
 const ProviderOllama = @import("ProviderOllama.zig").ProviderOllama;
+const EventServer = @import("EventServer.zig").EventServer;
 const EventSystem = @import("EventSystem.zig").EventSystem;
 const Commands = @import("Commands.zig");
 const ChatEngine = @import("ChatEngine.zig");
@@ -27,6 +28,7 @@ pub const App = struct {
     cli: *Cli,
     store: MemoryStoreSqlite,
     provider: ProviderOllama,
+    event_server: *EventServer,
     events: EventSystem,
     conn: ConfigConn,
     sys: ConfigSys,
@@ -79,10 +81,15 @@ pub const App = struct {
         const max_recent = store.getMaxRecentMessages();
         const reflection = store.getReflectionEnabled();
 
+        // Create SSE event server (heap-allocated for thread safety)
+        const event_server = try allocator.create(EventServer);
+        event_server.* = EventServer.init(allocator, conn.event_port);
+
         return App{
             .cli = cli,
             .store = store,
             .provider = provider,
+            .event_server = event_server,
             .events = undefined,
             .conn = conn,
             .sys = sys,
@@ -93,7 +100,14 @@ pub const App = struct {
     }
 
     pub fn initEvents(self: *App) void {
-        self.events = EventSystem.init(&self.store, null);
+        self.events = EventSystem.init(self.event_server);
+    }
+
+    pub fn startEventServer(self: *App) !std.Thread {
+        self.cli.msg(.inf, "Starting event server on port {d}...", .{
+            self.conn.event_port,
+        });
+        return std.Thread.spawn(.{}, EventServer.run, .{self.event_server});
     }
 
     pub fn setMaxRecentMessages(self: *App, count: usize) !void {
@@ -107,6 +121,8 @@ pub const App = struct {
     }
 
     pub fn deinit(self: *App, allocator: std.mem.Allocator) void {
+        self.event_server.deinit();
+        allocator.destroy(self.event_server);
         self.store.deinit();
         self.provider.deinit(allocator);
     }
