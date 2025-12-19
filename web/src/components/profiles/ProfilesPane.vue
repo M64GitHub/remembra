@@ -1,5 +1,5 @@
 <script setup>
-import { ref, onMounted, onUnmounted } from 'vue'
+import { ref, onMounted, onUnmounted, watch } from 'vue'
 import { profiles as profilesApi, prompts as promptsApi } from '../../api/client.js'
 import { appState, reloadAllData, registerReload } from '../../stores/appState.js'
 import ProviderCard from './ProviderCard.vue'
@@ -14,6 +14,7 @@ const activeProfile = ref({ provider: null, persona: null })
 const activeIds = ref({ provider_id: null, persona_id: null })
 const isLoading = ref(false)
 const error = ref(null)
+const hasLoaded = ref(false)
 
 const showPersonaModal = ref(false)
 const editingPersona = ref(null)
@@ -191,16 +192,28 @@ async function saveProvider(providerData) {
   }
 }
 
+// Load when pane becomes active
+watch(
+  () => appState.leftSidebarMode,
+  (mode) => {
+    if (mode === 'settings' && !hasLoaded.value) {
+      loadProfiles()
+      hasLoaded.value = true
+    }
+  },
+  { immediate: true }
+)
+
 let unregisterReload = null
 
 onMounted(() => {
-  setTimeout(loadProfiles, 3500)
-
   // Register for reload after /db clear
   unregisterReload = registerReload('profiles', async () => {
     providers.value = []
     personas.value = []
+    hasLoaded.value = false
     await loadProfiles()
+    hasLoaded.value = true
   })
 })
 

@@ -7,6 +7,7 @@ const contextData = ref(null)
 const isLoading = ref(false)
 const error = ref(null)
 const isSavingConfig = ref(false)
+const hasLoaded = ref(false)
 const expandedSections = ref({
   settings: true,
   prompt: true,
@@ -81,6 +82,19 @@ function saveContextWindow() {
   }, 500)
 }
 
+// Load when right sidebar becomes visible
+watch(
+  () => appState.rightSidebarOpen,
+  (open) => {
+    if (open && !hasLoaded.value) {
+      loadContext()
+      loadContextWindow()
+      hasLoaded.value = true
+    }
+  },
+  { immediate: true }
+)
+
 // Auto-refresh context when chat completes
 watch(
   () => appState.isChatBusy,
@@ -95,14 +109,13 @@ watch(
 let unregisterReload = null
 
 onMounted(() => {
-  setTimeout(loadContext, 2000)
-  setTimeout(loadContextWindow, 2000)
-
   // Register for persona change reloads
   unregisterReload = registerReload('context', async () => {
     contextData.value = null
+    hasLoaded.value = false
     await loadContext()
     await loadContextWindow()
+    hasLoaded.value = true
   })
 })
 

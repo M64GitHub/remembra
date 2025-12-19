@@ -7,8 +7,7 @@ import ThoughtCard from './ThoughtCard.vue'
 const thoughts = ref([])
 const isLoading = ref(false)
 const error = ref(null)
-
-let refreshInterval = null
+const hasLoaded = ref(false)
 
 async function loadThoughts() {
   if (isLoading.value || appState.isChatBusy) return
@@ -28,6 +27,19 @@ async function loadThoughts() {
   }
 }
 
+// Load when pane becomes active
+watch(
+  () => appState.leftSidebarMode,
+  (mode) => {
+    if (mode === 'memory' && !hasLoaded.value) {
+      loadThoughts()
+      hasLoaded.value = true
+    }
+  },
+  { immediate: true }
+)
+
+// Auto-refresh after chat completes (new thoughts may have been created)
 watch(
   () => appState.isChatBusy,
   (newVal, oldVal) => {
@@ -40,18 +52,16 @@ watch(
 let unregisterReload = null
 
 onMounted(() => {
-  setTimeout(loadThoughts, 3000)
-  refreshInterval = setInterval(loadThoughts, 30000)
-
   // Register for persona change reloads
   unregisterReload = registerReload('thoughts', async () => {
     thoughts.value = []
+    hasLoaded.value = false
     await loadThoughts()
+    hasLoaded.value = true
   })
 })
 
 onUnmounted(() => {
-  if (refreshInterval) clearInterval(refreshInterval)
   if (unregisterReload) unregisterReload()
 })
 </script>

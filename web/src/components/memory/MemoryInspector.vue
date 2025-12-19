@@ -9,6 +9,7 @@ const isLoading = ref(false)
 const error = ref(null)
 const searchQuery = ref('')
 const filterType = ref('all')
+const hasLoaded = ref(false)
 
 const filterOptions = [
   { value: 'all', label: 'All' },
@@ -94,6 +95,18 @@ async function deleteMemory(id) {
   }
 }
 
+// Load when pane becomes active
+watch(
+  () => appState.leftSidebarMode,
+  (mode) => {
+    if (mode === 'memory' && !hasLoaded.value) {
+      loadMemories()
+      hasLoaded.value = true
+    }
+  },
+  { immediate: true }
+)
+
 // Auto-refresh after chat completes (new memories may have been created)
 watch(
   () => appState.isChatBusy,
@@ -107,12 +120,12 @@ watch(
 let unregisterReload = null
 
 onMounted(() => {
-  setTimeout(loadMemories, 2500)
-
   // Register for persona change reloads
   unregisterReload = registerReload('memories', async () => {
     memories.value = []
+    hasLoaded.value = false
     await loadMemories()
+    hasLoaded.value = true
   })
 })
 

@@ -8,6 +8,7 @@ export const appState = reactive({
   activePersonaId: null,
   maxRecentMessages: 24,
   leftSidebarMode: 'memory',
+  rightSidebarOpen: true,
   selectedMessageIds: new Set(),
   bookmarkedMessageIds: new Set(),
   reflectionEnabled: true,

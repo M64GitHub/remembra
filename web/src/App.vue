@@ -26,6 +26,7 @@ function toggleLeftSidebar() {
 
 function toggleRightSidebar() {
   rightSidebarOpen.value = !rightSidebarOpen.value
+  appState.rightSidebarOpen = rightSidebarOpen.value
 }
 
 function setLeftSidebarMode(mode) {
@@ -52,6 +53,7 @@ onMounted(() => {
     leftSidebarMode.value = savedMode
     appState.leftSidebarMode = savedMode
   }
+  appState.rightSidebarOpen = rightSidebarOpen.value
 })
 
 function saveSidebarState() {
