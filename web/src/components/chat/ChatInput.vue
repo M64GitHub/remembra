@@ -223,15 +223,16 @@ function resizeTextarea() {
   display: flex;
   align-items: center;
   justify-content: center;
-  background: linear-gradient(135deg, #e07850 0%, #c44536 100%);
+  background: transparent;
+  border: 1px solid #7a3545;
   border-radius: var(--border-radius);
-  color: white;
+  color: #7a3545;
   transition: all var(--transition-fast);
 }
 
 .stop-btn:hover {
+  background: rgba(122, 53, 69, 0.15);
   transform: scale(1.05);
-  box-shadow: 0 0 20px rgba(196, 69, 54, 0.4);
 }
 
 .stop-icon {
@@ -258,7 +259,7 @@ function resizeTextarea() {
   align-items: center;
   justify-content: center;
   gap: var(--space-xs);
-  color: var(--success);
+  color: var(--text-secondary);
 }
 
 .hint-dot {
@@ -270,7 +271,7 @@ function resizeTextarea() {
 }
 
 .hint-streaming .hint-dot {
-  background: var(--success);
+  background: var(--text-secondary);
 }
 
 kbd {

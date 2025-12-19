@@ -65,6 +65,6 @@ pub fn build(b: *std.Build) void {
     b.installArtifact(server_exe);
 
     const server_run = b.addRunArtifact(server_exe);
-    const server_step = b.step("server", "Run REMEMBRA HTTP server");
+    const server_step = b.step("serve", "Run REMEMBRA HTTP server");
     server_step.dependOn(&server_run.step);
 }
