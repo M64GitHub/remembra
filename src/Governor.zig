@@ -39,8 +39,7 @@ pub const Governor = struct {
                     @errorName(err),
                 });
                 events.emitFmt(
-                    persona_id,
-                    .governor_blocked,
+                    "governor_blocked",
                     p.subject,
                     "validation: {s}",
                     .{@errorName(err)},
@@ -66,8 +65,7 @@ pub const Governor = struct {
                         },
                     );
                     events.emit(
-                        persona_id,
-                        .governor_blocked,
+                        "governor_blocked",
                         p.subject,
                         "rate-limited",
                     );
@@ -84,8 +82,7 @@ pub const Governor = struct {
             )) {
                 cli.msg(.inf, "[Governor] dedupe: already stored", .{});
                 events.emit(
-                    persona_id,
-                    .governor_blocked,
+                    "governor_blocked",
                     p.subject,
                     "duplicate",
                 );
@@ -108,15 +105,13 @@ pub const Governor = struct {
 
             cli.msg(.ok, "[Governor] accepted -> stored as [mem#{d}]", .{id});
             events.emitFmt(
-                persona_id,
-                .governor_accepted,
+                "governor_accepted",
                 p.subject,
                 "id={d}",
                 .{id},
             );
             events.emitFmt(
-                persona_id,
-                .memory_stored,
+                "memory_stored",
                 p.subject,
                 "{s}.{s}={s}",
                 .{ p.subject, p.predicate, p.object },

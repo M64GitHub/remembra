@@ -6,8 +6,6 @@ const Cli = @import("Cli.zig").Cli;
 const IdleThinker = @import("IdleThinker.zig").IdleThinker;
 const EpisodeCompactor = @import("EpisodeCompactor.zig").EpisodeCompactor;
 const App = @import("App.zig").App;
-const EventSystem = @import("EventSystem.zig");
-const EventKind = @import("MemoryStoreSqlite.zig").EventKind;
 
 pub const Result = enum {
     handled,
@@ -75,7 +73,7 @@ pub fn help() []const u8 {
     \\  /idle run          - Trigger idle thinking
     \\  /idle tick <min>   - Advance time + idle think
     \\  /episode compact   - Compact messages into episode
-    \\  /events            - Show recent events
+    \\  /events            - Show SSE connection status
     ;
 }
 
@@ -388,24 +386,13 @@ fn cmdEpisodeCompact(allocator: std.mem.Allocator, app: *App) !Result {
 }
 
 fn cmdEvents(allocator: std.mem.Allocator, app: *App) !Result {
-    const pid = app.store.getActivePersonaId() orelse 1;
-    const events = try app.events.query(allocator, pid, null, null, 20);
-    defer EventSystem.freeEvents(allocator, events);
-
-    if (events.len == 0) {
-        app.cli.msg(.inf, "No events recorded.", .{});
-        return .handled;
-    }
-
-    app.cli.msg(.inf, "Recent events ({d}):", .{events.len});
-    for (events) |e| {
-        app.cli.msg(.inf, "  [{d}] {s}: {s} - {s}", .{
-            e.id,
-            @tagName(e.kind),
-            e.subject,
-            e.details,
-        });
-    }
+    _ = allocator;
+    const count = app.event_server.connectionCount();
+    app.cli.msg(
+        .inf,
+        "Events now stream via SSE (port {d}). {d} client(s) connected.",
+        .{ app.conn.event_port, count },
+    );
     return .handled;
 }
 

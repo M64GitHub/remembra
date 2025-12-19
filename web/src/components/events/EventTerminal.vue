@@ -1,17 +1,12 @@
 <script setup>
-import { ref, watch, onMounted, onUnmounted, nextTick, computed } from 'vue'
-import { events as eventsApi } from '../../api/client.js'
-import { appState, registerReload } from '../../stores/appState.js'
+import { ref, onMounted, onUnmounted, nextTick, computed } from 'vue'
+import { onEvent } from '../../stores/eventBus.js'
 import EventLine from './EventLine.vue'
 
 const events = ref([])
-const isLoading = ref(false)
 const filter = ref('all')
-const error = ref(null)
 const terminalRef = ref(null)
-const lastTimestamp = ref(0)
-
-let pollInterval = null
+let eventId = 0
 
 const EVENT_COLORS = {
   memory_proposed: 'purple',
@@ -26,6 +21,8 @@ const EVENT_COLORS = {
   chat_completed: 'blue',
   security_warning: 'red',
   command_executed: 'cyan',
+  store_changed: 'cyan',
+  bookmarks_changed: 'cyan',
 }
 
 const filterOptions = [
@@ -44,44 +41,30 @@ const filteredEvents = computed(() => {
       case 'memory': return kind.startsWith('memory_')
       case 'thought': return kind.includes('thought') || kind.includes('episode')
       case 'governor': return kind.startsWith('governor_')
-      case 'system': return kind.includes('context') || kind.includes('chat') || kind.includes('security')
+      case 'system':
+        return kind.includes('context') ||
+               kind.includes('chat') ||
+               kind.includes('security') ||
+               kind.includes('store') ||
+               kind.includes('bookmark')
       default: return true
     }
   })
 })
 
-async function fetchEvents() {
-  if (isLoading.value || appState.isChatBusy) return
-
-  isLoading.value = true
-  try {
-    const since = lastTimestamp.value > 0 ? lastTimestamp.value + 1 : null
-    console.log('[Events] Fetching since:', since)
-    const data = await eventsApi.list(since, 100)
-    const newEvents = data.events || []
-    console.log('[Events] Got', newEvents.length, 'events:', newEvents)
-
-    if (newEvents.length > 0) {
-      for (const evt of newEvents) {
-        evt.color = EVENT_COLORS[evt.kind] || 'blue'
-        if (evt.timestamp_ms > lastTimestamp.value) {
-          lastTimestamp.value = evt.timestamp_ms
-        }
-      }
-
-      events.value = [...events.value, ...newEvents].slice(-500)
-      console.log('[Events] Total events now:', events.value.length)
-
-      await nextTick()
-      scrollToBottom()
-    }
-    error.value = null
-  } catch (e) {
-    console.error('[Events] Fetch error:', e)
-    error.value = e.message
-  } finally {
-    isLoading.value = false
+function handleEvent(event) {
+  const evt = {
+    id: ++eventId,
+    kind: event.kind,
+    subject: event.subject,
+    details: event.data,
+    timestamp_ms: Date.now(),
+    color: EVENT_COLORS[event.kind] || 'blue',
   }
+
+  events.value = [...events.value, evt].slice(-500)
+
+  nextTick(() => scrollToBottom())
 }
 
 function scrollToBottom() {
@@ -92,28 +75,16 @@ function scrollToBottom() {
 
 function clearEvents() {
   events.value = []
-  lastTimestamp.value = 0
 }
 
-let unregisterReload = null
+let unsubscribe = null
 
 onMounted(() => {
-  // Delay initial fetch to let messages load first (single-threaded server)
-  setTimeout(() => {
-    fetchEvents()
-    pollInterval = setInterval(fetchEvents, 5000)  // Poll every 5 seconds
-  }, 1500)
-
-  // Register for persona change reloads
-  unregisterReload = registerReload('events', async () => {
-    clearEvents()
-    await fetchEvents()
-  })
+  unsubscribe = onEvent('*', handleEvent)
 })
 
 onUnmounted(() => {
-  if (pollInterval) clearInterval(pollInterval)
-  if (unregisterReload) unregisterReload()
+  if (unsubscribe) unsubscribe()
 })
 </script>
 
@@ -141,10 +112,6 @@ onUnmounted(() => {
       </button>
     </div>
 
-    <div class="terminal-error" v-if="error">
-      {{ error }}
-    </div>
-
     <div class="terminal-content" ref="terminalRef">
       <div v-if="filteredEvents.length === 0" class="terminal-empty">
         Waiting for events...
@@ -158,9 +125,8 @@ onUnmounted(() => {
     </div>
 
     <div class="terminal-status">
-      <span class="status-dot" :class="{ busy: appState.isChatBusy }"></span>
-      <span v-if="appState.isChatBusy">Waiting for chat...</span>
-      <span v-else>{{ events.length }} events</span>
+      <span class="status-dot"></span>
+      <span>{{ events.length }} events (SSE)</span>
     </div>
   </div>
 </template>
@@ -215,13 +181,6 @@ onUnmounted(() => {
   color: var(--text-primary);
 }
 
-.terminal-error {
-  padding: var(--space-xs) var(--space-sm);
-  background: var(--error-dim);
-  color: var(--error);
-  font-size: var(--text-xs);
-}
-
 .terminal-content {
   flex: 1;
   overflow-y: auto;
@@ -251,10 +210,5 @@ onUnmounted(() => {
   height: 6px;
   border-radius: 50%;
   background: var(--success);
-}
-
-.status-dot.busy {
-  background: var(--accent-primary);
-  animation: pulse 1s infinite;
 }
 </style>

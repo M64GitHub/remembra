@@ -12,6 +12,7 @@ import ProfilesPane from './components/profiles/ProfilesPane.vue'
 import StorePane from './components/store/StorePane.vue'
 import BookmarksPane from './components/bookmarks/BookmarksPane.vue'
 import { appState } from './stores/appState.js'
+import { connectEvents } from './stores/eventBus.js'
 
 const leftSidebarOpen = ref(true)
 const rightSidebarOpen = ref(true)
@@ -41,6 +42,8 @@ function scrollToMessage(messageId) {
 }
 
 onMounted(() => {
+  connectEvents()
+
   const savedLeft = localStorage.getItem('remembra-left-sidebar')
   const savedRight = localStorage.getItem('remembra-right-sidebar')
   const savedMode = localStorage.getItem('remembra-left-sidebar-mode')

@@ -65,7 +65,7 @@ pub const IdleThinker = struct {
 
             store.setLastIdleThinkMs(now_ms);
             cli.msg(.inf, "Idle thinker: stored self.thought", .{});
-            events.emit(persona_id, .thought_generated, "self", thought);
+            events.emit("thought_generated", "self", thought);
         }
 
         const new_count = store.countMessagesSinceCutoff(persona_id);
@@ -128,7 +128,7 @@ pub const IdleThinker = struct {
                     "Idle thinker: episode summary stored and cutoff advanced.",
                     .{},
                 );
-                events.emit(persona_id, .episode_compacted, "episode", ep.title);
+                events.emit("episode_compacted", "episode", ep.title);
             }
         }
     }

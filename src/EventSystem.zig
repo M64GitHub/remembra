@@ -1,76 +1,43 @@
-//! Event emission and persistence for REMEMBRA observability.
+//! Event emission via SSE broadcast.
 
 const std = @import("std");
-const MemoryStore = @import("MemoryStoreSqlite.zig");
-const EventKind = MemoryStore.EventKind;
-const Event = MemoryStore.Event;
+const EventServer = @import("EventServer.zig").EventServer;
 
 pub const EventSystem = struct {
-    store: *MemoryStore.MemoryStoreSqlite,
-    session_id: ?[]const u8,
+    server: *EventServer,
 
-    pub fn init(
-        store: *MemoryStore.MemoryStoreSqlite,
-        session_id: ?[]const u8,
-    ) EventSystem {
-        return .{
-            .store = store,
-            .session_id = session_id,
-        };
+    pub fn init(server: *EventServer) EventSystem {
+        return .{ .server = server };
     }
 
     pub fn emit(
         self: *EventSystem,
-        persona_id: i64,
-        kind: EventKind,
+        kind: []const u8,
         subject: []const u8,
         details: []const u8,
     ) void {
-        _ = self.store.insertEvent(
-            persona_id,
-            kind,
-            subject,
-            details,
-            self.session_id,
-        ) catch {};
+        var buf: [1024]u8 = undefined;
+        const json = std.fmt.bufPrint(
+            &buf,
+            "{{\"kind\":\"{s}\",\"subject\":\"{s}\",\"data\":\"{s}\"}}",
+            .{ kind, subject, details },
+        ) catch return;
+        self.server.broadcast(json);
     }
 
     pub fn emitFmt(
         self: *EventSystem,
-        persona_id: i64,
-        kind: EventKind,
+        kind: []const u8,
         subject: []const u8,
         comptime fmt: []const u8,
         args: anytype,
     ) void {
-        var buf: [1024]u8 = undefined;
-        const details = std.fmt.bufPrint(&buf, fmt, args) catch "(fmt error)";
-        self.emit(persona_id, kind, subject, details);
-    }
-
-    pub fn query(
-        self: *EventSystem,
-        allocator: std.mem.Allocator,
-        persona_id: i64,
-        since_ms: ?i64,
-        kind_filter: ?EventKind,
-        limit: usize,
-    ) ![]Event {
-        return self.store.queryEvents(
-            allocator,
-            persona_id,
-            since_ms,
-            kind_filter,
-            limit,
-        );
+        var details_buf: [512]u8 = undefined;
+        const details = std.fmt.bufPrint(
+            &details_buf,
+            fmt,
+            args,
+        ) catch "(fmt error)";
+        self.emit(kind, subject, details);
     }
 };
-
-pub fn freeEvents(allocator: std.mem.Allocator, events: []Event) void {
-    for (events) |e| {
-        allocator.free(@constCast(e.subject));
-        allocator.free(@constCast(e.details));
-        if (e.session_id) |sid| allocator.free(@constCast(sid));
-    }
-    allocator.free(events);
-}

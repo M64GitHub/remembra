@@ -6,6 +6,7 @@ import {
   setBookmarkedIds,
   removeBookmarkedId,
 } from '../../stores/appState.js'
+import { onEvent } from '../../stores/eventBus.js'
 import BookmarkCard from './BookmarkCard.vue'
 
 const emit = defineEmits(['jump-to'])
@@ -67,14 +68,17 @@ function handleJumpTo(messageId) {
 }
 
 let unregisterReload = null
+let unsubscribeEvent = null
 
 onMounted(() => {
   loadBookmarks()
   unregisterReload = registerReload('bookmarks', loadBookmarks)
+  unsubscribeEvent = onEvent('bookmarks_changed', loadBookmarks)
 })
 
 onUnmounted(() => {
   if (unregisterReload) unregisterReload()
+  if (unsubscribeEvent) unsubscribeEvent()
 })
 </script>
 
