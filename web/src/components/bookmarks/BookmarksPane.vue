@@ -1,6 +1,6 @@
 <script setup>
-import { ref, onMounted, onUnmounted } from 'vue'
-import { bookmarks, chat } from '../../api/client.js'
+import { ref, computed, onMounted, onUnmounted } from 'vue'
+import { bookmarks, tags as tagsApi } from '../../api/client.js'
 import {
   registerReload,
   setBookmarkedIds,
@@ -8,12 +8,15 @@ import {
 } from '../../stores/appState.js'
 import { onEvent } from '../../stores/eventBus.js'
 import BookmarkCard from './BookmarkCard.vue'
+import TagCircle from '../common/TagCircle.vue'
 
 const emit = defineEmits(['jump-to'])
 
 const items = ref([])
-const messageMap = ref({})
+const allTags = ref([])
 const isLoading = ref(false)
+const searchQuery = ref('')
+const filterTagIds = ref(new Set())
 
 async function loadBookmarks() {
   isLoading.value = true
@@ -21,9 +24,6 @@ async function loadBookmarks() {
     const data = await bookmarks.list()
     items.value = data.bookmarks || []
     setBookmarkedIds(data.bookmarked_ids || [])
-
-    // Load message previews for bookmarks
-    await loadMessagePreviews()
   } catch (e) {
     console.error('Failed to load bookmarks:', e)
   } finally {
@@ -31,25 +31,12 @@ async function loadBookmarks() {
   }
 }
 
-async function loadMessagePreviews() {
-  // Get unique message IDs
-  const msgIds = items.value.map(b => b.message_id)
-  if (msgIds.length === 0) return
-
+async function loadTags() {
   try {
-    // Load messages that contain our bookmarked IDs
-    const data = await chat.getMessages(200, null)
-    const msgs = data.messages || []
-
-    const map = {}
-    for (const msg of msgs) {
-      if (msgIds.includes(msg.id)) {
-        map[msg.id] = msg
-      }
-    }
-    messageMap.value = map
+    const data = await tagsApi.list()
+    allTags.value = data.tags || []
   } catch (e) {
-    console.error('Failed to load message previews:', e)
+    console.error('Failed to load tags:', e)
   }
 }
 
@@ -67,47 +54,110 @@ function handleJumpTo(messageId) {
   emit('jump-to', messageId)
 }
 
+function handleUpdate() {
+  loadBookmarks()
+}
+
+function toggleFilterTag(tagId) {
+  if (filterTagIds.value.has(tagId)) {
+    filterTagIds.value.delete(tagId)
+  } else {
+    filterTagIds.value.add(tagId)
+  }
+  filterTagIds.value = new Set(filterTagIds.value)
+}
+
+function isFilterActive(tagId) {
+  return filterTagIds.value.has(tagId)
+}
+
+const filteredItems = computed(() => {
+  let result = items.value
+
+  if (searchQuery.value) {
+    const q = searchQuery.value.toLowerCase()
+    result = result.filter(b => {
+      const label = b.label || ''
+      return label.toLowerCase().includes(q)
+    })
+  }
+
+  if (filterTagIds.value.size > 0) {
+    result = result.filter(b => {
+      const bookmarkTags = b.tag_ids || []
+      return bookmarkTags.some(tid => filterTagIds.value.has(tid))
+    })
+  }
+
+  return result
+})
+
 let unregisterReload = null
-let unsubscribeEvent = null
+let unsubscribeBookmarks = null
+let unsubscribeTags = null
 
 onMounted(() => {
   loadBookmarks()
+  loadTags()
   unregisterReload = registerReload('bookmarks', loadBookmarks)
-  unsubscribeEvent = onEvent('bookmarks_changed', loadBookmarks)
+  unsubscribeBookmarks = onEvent('bookmarks_changed', loadBookmarks)
+  unsubscribeTags = onEvent('tags_changed', loadTags)
 })
 
 onUnmounted(() => {
   if (unregisterReload) unregisterReload()
-  if (unsubscribeEvent) unsubscribeEvent()
+  if (unsubscribeBookmarks) unsubscribeBookmarks()
+  if (unsubscribeTags) unsubscribeTags()
 })
 </script>
 
 <template>
   <div class="bookmarks-pane">
     <div class="bookmarks-toolbar">
-      <span class="toolbar-label">Bookmarks</span>
+      <input
+        v-model="searchQuery"
+        type="text"
+        placeholder="Search..."
+        class="bookmarks-search"
+      />
       <button @click="loadBookmarks" class="refresh-btn" title="Refresh">
         &#x21BB;
       </button>
     </div>
 
+    <div class="tag-filter" v-if="allTags.length > 0">
+      <span class="filter-label">Filter:</span>
+      <div
+        v-for="tag in allTags"
+        :key="tag.id"
+        class="filter-tag"
+        :class="{ active: isFilterActive(tag.id) }"
+        @click="toggleFilterTag(tag.id)"
+        :title="tag.name"
+      >
+        <TagCircle :color="tag.color" :size="10" />
+        <span class="filter-tag-name">{{ tag.name }}</span>
+      </div>
+    </div>
+
     <div class="bookmarks-list">
       <div v-if="isLoading" class="loading">Loading...</div>
-      <div v-else-if="items.length === 0" class="empty">
+      <div v-else-if="filteredItems.length === 0" class="empty">
         No bookmarks yet
       </div>
       <BookmarkCard
-        v-for="bookmark in items"
+        v-for="bookmark in filteredItems"
         :key="bookmark.id"
         :bookmark="bookmark"
-        :message="messageMap[bookmark.message_id]"
+        :all-tags="allTags"
         @click="handleJumpTo(bookmark.message_id)"
         @delete="deleteBookmark(bookmark.id, bookmark.message_id)"
+        @update="handleUpdate"
       />
     </div>
 
     <div class="bookmarks-footer">
-      {{ items.length }} bookmarks
+      {{ filteredItems.length }} / {{ items.length }} bookmarks
     </div>
   </div>
 </template>
@@ -121,18 +171,25 @@ onUnmounted(() => {
 
 .bookmarks-toolbar {
   display: flex;
-  justify-content: space-between;
-  align-items: center;
-  padding: var(--space-xs) var(--space-sm);
+  gap: var(--space-xs);
+  padding: var(--space-xs);
   background: var(--bg-secondary);
   border-bottom: var(--border-subtle);
 }
 
-.toolbar-label {
+.bookmarks-search {
+  flex: 1;
+  padding: var(--space-xs);
   font-size: var(--text-xs);
-  color: var(--text-muted);
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
+  background: var(--bg-primary);
+  border: var(--border-subtle);
+  border-radius: var(--border-radius-sm);
+  color: var(--text-primary);
+}
+
+.bookmarks-search:focus {
+  outline: none;
+  border-color: var(--accent-primary);
 }
 
 .refresh-btn {
@@ -170,5 +227,46 @@ onUnmounted(() => {
   color: var(--text-dim);
   text-align: center;
   border-top: var(--border-subtle);
+}
+
+.tag-filter {
+  display: flex;
+  align-items: center;
+  gap: var(--space-xs);
+  padding: var(--space-xs);
+  background: var(--bg-secondary);
+  border-bottom: var(--border-subtle);
+  flex-wrap: wrap;
+}
+
+.filter-label {
+  font-size: var(--text-xs);
+  color: var(--text-dim);
+}
+
+.filter-tag {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 6px;
+  border-radius: var(--border-radius-sm);
+  cursor: pointer;
+  transition: all var(--transition-fast);
+  opacity: 0.5;
+}
+
+.filter-tag:hover {
+  opacity: 0.8;
+  background: var(--bg-hover);
+}
+
+.filter-tag.active {
+  opacity: 1;
+  background: var(--accent-glow);
+}
+
+.filter-tag-name {
+  font-size: 10px;
+  color: var(--text-secondary);
 }
 </style>

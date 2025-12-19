@@ -93,6 +93,14 @@ pub const StoreItem = struct {
 pub const Bookmark = struct {
     id: i64 = 0,
     message_id: i64,
+    label: []const u8 = "",
+    created_at_ms: i64 = 0,
+};
+
+pub const Tag = struct {
+    id: i64 = 0,
+    name: []const u8,
+    color: []const u8,
     created_at_ms: i64 = 0,
 };
 

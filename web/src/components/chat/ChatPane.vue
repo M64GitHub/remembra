@@ -258,6 +258,44 @@ async function sendMessage(text) {
   )
 }
 
+async function jumpToMessage(targetId) {
+  let found = messages.value.find(m => m.id === targetId)
+  if (found) {
+    scrollToMessageElement(targetId)
+    return
+  }
+
+  const MAX_ROUNDS = 200
+  let rounds = 0
+
+  while (!found && hasMore.value && rounds < MAX_ROUNDS) {
+    const oldestId = messages.value[0]?.id
+    if (!oldestId) break
+
+    await loadMessages(oldestId)
+    found = messages.value.find(m => m.id === targetId)
+    rounds++
+  }
+
+  if (found) {
+    await nextTick()
+    scrollToMessageElement(targetId)
+  } else {
+    console.warn(`Message ${targetId} not found after ${rounds} rounds`)
+  }
+}
+
+function scrollToMessageElement(messageId) {
+  const el = document.querySelector(`[data-message-id="${messageId}"]`)
+  if (el) {
+    el.scrollIntoView({ behavior: 'smooth', block: 'center' })
+    el.classList.add('highlight-flash')
+    setTimeout(() => el.classList.remove('highlight-flash'), 2000)
+  }
+}
+
+defineExpose({ jumpToMessage })
+
 let unregisterReload = null
 
 onMounted(() => {

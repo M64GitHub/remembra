@@ -11,12 +11,14 @@ import ThoughtsViewer from './components/thoughts/ThoughtsViewer.vue'
 import ProfilesPane from './components/profiles/ProfilesPane.vue'
 import StorePane from './components/store/StorePane.vue'
 import BookmarksPane from './components/bookmarks/BookmarksPane.vue'
+import SettingsPane from './components/settings/SettingsPane.vue'
 import { appState } from './stores/appState.js'
 import { connectEvents } from './stores/eventBus.js'
 
 const leftSidebarOpen = ref(true)
 const rightSidebarOpen = ref(true)
 const leftSidebarMode = ref('memory')
+const chatPaneRef = ref(null)
 
 function toggleLeftSidebar() {
   leftSidebarOpen.value = !leftSidebarOpen.value
@@ -33,11 +35,8 @@ function setLeftSidebarMode(mode) {
 }
 
 function scrollToMessage(messageId) {
-  const el = document.querySelector(`[data-message-id="${messageId}"]`)
-  if (el) {
-    el.scrollIntoView({ behavior: 'smooth', block: 'center' })
-    el.classList.add('highlight-flash')
-    setTimeout(() => el.classList.remove('highlight-flash'), 2000)
+  if (chatPaneRef.value) {
+    chatPaneRef.value.jumpToMessage(messageId)
   }
 }
 
@@ -107,6 +106,34 @@ function saveSidebarState() {
             @click="setLeftSidebarMode('store')"
             title="Saved Items"
           >★</button>
+          <button
+            class="mode-tab"
+            :class="{ active: leftSidebarMode === 'settings' }"
+            @click="setLeftSidebarMode('settings')"
+            title="Settings"
+          >
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"
+                 fill="none" stroke="currentColor" stroke-width="2"
+                 stroke-linecap="round" stroke-linejoin="round"
+                 class="gear-icon">
+              <circle cx="12" cy="12" r="3"/>
+              <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0
+                       0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65
+                       0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0
+                       1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65
+                       1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0
+                       1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65
+                       0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65
+                       1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2
+                       2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0
+                       0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2
+                       2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0
+                       0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0
+                       2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0
+                       0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65
+                       1.65 0 0 0-1.51 1z"/>
+            </svg>
+          </button>
         </div>
 
         <template v-if="leftSidebarMode === 'memory'">
@@ -121,7 +148,7 @@ function saveSidebarState() {
           </Panel>
         </template>
 
-        <template v-else>
+        <template v-else-if="leftSidebarMode === 'store'">
           <Panel title="Store" icon="memory" :default-open="true">
             <StorePane />
           </Panel>
@@ -129,10 +156,16 @@ function saveSidebarState() {
             <BookmarksPane @jump-to="scrollToMessage" />
           </Panel>
         </template>
+
+        <template v-else-if="leftSidebarMode === 'settings'">
+          <Panel title="Settings" icon="settings" :default-open="true">
+            <SettingsPane />
+          </Panel>
+        </template>
       </Sidebar>
 
       <main class="main-content">
-        <ChatPane />
+        <ChatPane ref="chatPaneRef" />
       </main>
 
       <Sidebar
@@ -218,5 +251,10 @@ function saveSidebarState() {
 .remembra-icon {
   width: 18px;
   height: 18px;
+}
+
+.gear-icon {
+  width: 16px;
+  height: 16px;
 }
 </style>

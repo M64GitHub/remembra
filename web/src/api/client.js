@@ -215,12 +215,23 @@ export const store = {
     post('/api/store', { content, source_msg_id: sourceMsgId }),
   update: (id, content) => post(`/api/store/${id}`, { content }),
   remove: (id) => del(`/api/store/${id}`),
+  setTags: (id, tagIds) => post(`/api/store/${id}/tags`, { tag_ids: tagIds }),
 };
 
 export const bookmarks = {
   list: () => get('/api/bookmarks'),
   create: (messageIds) => post('/api/bookmarks', { message_ids: messageIds }),
-  createSingle: (messageId) => post('/api/bookmarks', { message_id: messageId }),
+  createSingle: (messageId, label = '') =>
+    post('/api/bookmarks', { message_id: messageId, label }),
   remove: (id) => del(`/api/bookmarks/${id}`),
   removeByMessage: (msgId) => del(`/api/bookmarks/msg/${msgId}`),
+  updateLabel: (id, label) => post(`/api/bookmarks/${id}/label`, { label }),
+  setTags: (id, tagIds) => post(`/api/bookmarks/${id}/tags`, { tag_ids: tagIds }),
+};
+
+export const tags = {
+  list: () => get('/api/tags'),
+  create: (name, color) => post('/api/tags', { name, color }),
+  update: (id, name, color) => post(`/api/tags/${id}`, { name, color }),
+  remove: (id) => del(`/api/tags/${id}`),
 };

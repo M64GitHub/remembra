@@ -125,14 +125,38 @@ pub const SCHEMA =
     \\    id            INTEGER PRIMARY KEY AUTOINCREMENT,
     \\    persona_id    INTEGER NOT NULL,
     \\    message_id    INTEGER NOT NULL,
+    \\    label         TEXT NOT NULL DEFAULT '',
     \\    created_at_ms INTEGER NOT NULL,
     \\    UNIQUE(persona_id, message_id)
+    \\);
+    \\
+    \\CREATE TABLE IF NOT EXISTS tags (
+    \\    id            INTEGER PRIMARY KEY AUTOINCREMENT,
+    \\    persona_id    INTEGER NOT NULL,
+    \\    name          TEXT NOT NULL,
+    \\    color         TEXT NOT NULL,
+    \\    created_at_ms INTEGER NOT NULL,
+    \\    UNIQUE(persona_id, name)
+    \\);
+    \\
+    \\CREATE TABLE IF NOT EXISTS bookmark_tags (
+    \\    bookmark_id   INTEGER NOT NULL,
+    \\    tag_id        INTEGER NOT NULL,
+    \\    PRIMARY KEY(bookmark_id, tag_id)
+    \\);
+    \\
+    \\CREATE TABLE IF NOT EXISTS store_item_tags (
+    \\    store_item_id INTEGER NOT NULL,
+    \\    tag_id        INTEGER NOT NULL,
+    \\    PRIMARY KEY(store_item_id, tag_id)
     \\);
     \\
     \\CREATE INDEX IF NOT EXISTS idx_store_persona
     \\    ON store_items(persona_id, id);
     \\CREATE INDEX IF NOT EXISTS idx_bookmarks_persona
     \\    ON bookmarks(persona_id, message_id);
+    \\CREATE INDEX IF NOT EXISTS idx_tags_persona
+    \\    ON tags(persona_id);
 ;
 
 pub const MemoryStoreSqlite = struct {
@@ -1979,18 +2003,20 @@ pub const MemoryStoreSqlite = struct {
         self: *MemoryStoreSqlite,
         persona_id: i64,
         message_id: i64,
+        label: []const u8,
     ) !i64 {
         const now = self.nowMs();
 
         const stmt = try self.db.prepare(
             "INSERT OR IGNORE INTO bookmarks(persona_id, message_id, " ++
-                "created_at_ms) VALUES(?, ?, ?);",
+                "label, created_at_ms) VALUES(?, ?, ?, ?);",
         );
         defer sqlite.finalize(stmt);
 
         sqlite.bindInt64(stmt, 1, persona_id);
         sqlite.bindInt64(stmt, 2, message_id);
-        sqlite.bindInt64(stmt, 3, now);
+        sqlite.bindText(stmt, 3, label);
+        sqlite.bindInt64(stmt, 4, now);
 
         if (sqlite.step(stmt) != c.SQLITE_DONE) {
             return error.SqliteStepFailed;
@@ -2046,7 +2072,7 @@ pub const MemoryStoreSqlite = struct {
         persona_id: i64,
     ) ![]Types.Bookmark {
         const stmt = try self.db.prepare(
-            "SELECT id, message_id, created_at_ms FROM bookmarks " ++
+            "SELECT id, message_id, label, created_at_ms FROM bookmarks " ++
                 "WHERE persona_id=? ORDER BY created_at_ms DESC;",
         );
         defer sqlite.finalize(stmt);
@@ -2060,7 +2086,8 @@ pub const MemoryStoreSqlite = struct {
             try out.append(allocator, .{
                 .id = sqlite.columnInt64(stmt, 0),
                 .message_id = sqlite.columnInt64(stmt, 1),
-                .created_at_ms = sqlite.columnInt64(stmt, 2),
+                .label = try allocator.dupe(u8, sqlite.columnText(stmt, 2)),
+                .created_at_ms = sqlite.columnInt64(stmt, 3),
             });
         }
 
@@ -2088,6 +2115,26 @@ pub const MemoryStoreSqlite = struct {
             .message_id = sqlite.columnInt64(stmt, 1),
             .created_at_ms = sqlite.columnInt64(stmt, 2),
         };
+    }
+
+    pub fn updateBookmarkLabel(
+        self: *MemoryStoreSqlite,
+        persona_id: i64,
+        bookmark_id: i64,
+        label: []const u8,
+    ) !void {
+        const stmt = try self.db.prepare(
+            "UPDATE bookmarks SET label=? WHERE id=? AND persona_id=?;",
+        );
+        defer sqlite.finalize(stmt);
+
+        sqlite.bindText(stmt, 1, label);
+        sqlite.bindInt64(stmt, 2, bookmark_id);
+        sqlite.bindInt64(stmt, 3, persona_id);
+
+        if (sqlite.step(stmt) != c.SQLITE_DONE) {
+            return error.SqliteStepFailed;
+        }
     }
 
     pub fn isMessageBookmarked(
@@ -2122,7 +2169,229 @@ pub const MemoryStoreSqlite = struct {
 
         return out.toOwnedSlice(allocator);
     }
+
+    // Tags CRUD
+
+    pub fn createTag(
+        self: *MemoryStoreSqlite,
+        persona_id: i64,
+        name: []const u8,
+        color: []const u8,
+    ) !i64 {
+        const now = self.nowMs();
+
+        const stmt = try self.db.prepare(
+            "INSERT INTO tags(persona_id, name, color, created_at_ms) " ++
+                "VALUES(?, ?, ?, ?);",
+        );
+        defer sqlite.finalize(stmt);
+
+        sqlite.bindInt64(stmt, 1, persona_id);
+        sqlite.bindText(stmt, 2, name);
+        sqlite.bindText(stmt, 3, color);
+        sqlite.bindInt64(stmt, 4, now);
+
+        if (sqlite.step(stmt) != c.SQLITE_DONE) {
+            return error.SqliteStepFailed;
+        }
+
+        return self.db.lastInsertRowId();
+    }
+
+    pub fn updateTag(
+        self: *MemoryStoreSqlite,
+        persona_id: i64,
+        tag_id: i64,
+        name: []const u8,
+        color: []const u8,
+    ) !void {
+        const stmt = try self.db.prepare(
+            "UPDATE tags SET name=?, color=? WHERE id=? AND persona_id=?;",
+        );
+        defer sqlite.finalize(stmt);
+
+        sqlite.bindText(stmt, 1, name);
+        sqlite.bindText(stmt, 2, color);
+        sqlite.bindInt64(stmt, 3, tag_id);
+        sqlite.bindInt64(stmt, 4, persona_id);
+
+        if (sqlite.step(stmt) != c.SQLITE_DONE) {
+            return error.SqliteStepFailed;
+        }
+    }
+
+    pub fn deleteTag(
+        self: *MemoryStoreSqlite,
+        persona_id: i64,
+        tag_id: i64,
+    ) !void {
+        const del_bm = try self.db.prepare(
+            "DELETE FROM bookmark_tags WHERE tag_id=?;",
+        );
+        defer sqlite.finalize(del_bm);
+        sqlite.bindInt64(del_bm, 1, tag_id);
+        _ = sqlite.step(del_bm);
+
+        const del_st = try self.db.prepare(
+            "DELETE FROM store_item_tags WHERE tag_id=?;",
+        );
+        defer sqlite.finalize(del_st);
+        sqlite.bindInt64(del_st, 1, tag_id);
+        _ = sqlite.step(del_st);
+
+        const stmt = try self.db.prepare(
+            "DELETE FROM tags WHERE id=? AND persona_id=?;",
+        );
+        defer sqlite.finalize(stmt);
+
+        sqlite.bindInt64(stmt, 1, tag_id);
+        sqlite.bindInt64(stmt, 2, persona_id);
+
+        if (sqlite.step(stmt) != c.SQLITE_DONE) {
+            return error.SqliteStepFailed;
+        }
+    }
+
+    pub fn loadTags(
+        self: *MemoryStoreSqlite,
+        allocator: std.mem.Allocator,
+        persona_id: i64,
+    ) ![]Types.Tag {
+        const stmt = try self.db.prepare(
+            "SELECT id, name, color, created_at_ms FROM tags " ++
+                "WHERE persona_id=? ORDER BY name ASC;",
+        );
+        defer sqlite.finalize(stmt);
+
+        sqlite.bindInt64(stmt, 1, persona_id);
+
+        var out: std.ArrayList(Types.Tag) = .empty;
+        errdefer out.deinit(allocator);
+
+        while (sqlite.step(stmt) == c.SQLITE_ROW) {
+            try out.append(allocator, .{
+                .id = sqlite.columnInt64(stmt, 0),
+                .name = try allocator.dupe(u8, sqlite.columnText(stmt, 1)),
+                .color = try allocator.dupe(u8, sqlite.columnText(stmt, 2)),
+                .created_at_ms = sqlite.columnInt64(stmt, 3),
+            });
+        }
+
+        return out.toOwnedSlice(allocator);
+    }
+
+    // Bookmark tag assignments
+
+    pub fn setBookmarkTags(
+        self: *MemoryStoreSqlite,
+        bookmark_id: i64,
+        tag_ids: []const i64,
+    ) !void {
+        const del_stmt = try self.db.prepare(
+            "DELETE FROM bookmark_tags WHERE bookmark_id=?;",
+        );
+        defer sqlite.finalize(del_stmt);
+        sqlite.bindInt64(del_stmt, 1, bookmark_id);
+        if (sqlite.step(del_stmt) != c.SQLITE_DONE) {
+            return error.SqliteStepFailed;
+        }
+
+        for (tag_ids) |tag_id| {
+            const ins_stmt = try self.db.prepare(
+                "INSERT INTO bookmark_tags(bookmark_id, tag_id) VALUES(?, ?);",
+            );
+            defer sqlite.finalize(ins_stmt);
+            sqlite.bindInt64(ins_stmt, 1, bookmark_id);
+            sqlite.bindInt64(ins_stmt, 2, tag_id);
+            if (sqlite.step(ins_stmt) != c.SQLITE_DONE) {
+                return error.SqliteStepFailed;
+            }
+        }
+    }
+
+    pub fn getBookmarkTagIds(
+        self: *MemoryStoreSqlite,
+        allocator: std.mem.Allocator,
+        bookmark_id: i64,
+    ) ![]i64 {
+        const stmt = try self.db.prepare(
+            "SELECT tag_id FROM bookmark_tags WHERE bookmark_id=?;",
+        );
+        defer sqlite.finalize(stmt);
+
+        sqlite.bindInt64(stmt, 1, bookmark_id);
+
+        var out: std.ArrayList(i64) = .empty;
+        errdefer out.deinit(allocator);
+
+        while (sqlite.step(stmt) == c.SQLITE_ROW) {
+            try out.append(allocator, sqlite.columnInt64(stmt, 0));
+        }
+
+        return out.toOwnedSlice(allocator);
+    }
+
+    // Store item tag assignments
+
+    pub fn setStoreItemTags(
+        self: *MemoryStoreSqlite,
+        store_item_id: i64,
+        tag_ids: []const i64,
+    ) !void {
+        const del_stmt = try self.db.prepare(
+            "DELETE FROM store_item_tags WHERE store_item_id=?;",
+        );
+        defer sqlite.finalize(del_stmt);
+        sqlite.bindInt64(del_stmt, 1, store_item_id);
+        if (sqlite.step(del_stmt) != c.SQLITE_DONE) {
+            return error.SqliteStepFailed;
+        }
+
+        for (tag_ids) |tag_id| {
+            const ins_stmt = try self.db.prepare(
+                "INSERT INTO store_item_tags(store_item_id, tag_id) " ++
+                    "VALUES(?, ?);",
+            );
+            defer sqlite.finalize(ins_stmt);
+            sqlite.bindInt64(ins_stmt, 1, store_item_id);
+            sqlite.bindInt64(ins_stmt, 2, tag_id);
+            if (sqlite.step(ins_stmt) != c.SQLITE_DONE) {
+                return error.SqliteStepFailed;
+            }
+        }
+    }
+
+    pub fn getStoreItemTagIds(
+        self: *MemoryStoreSqlite,
+        allocator: std.mem.Allocator,
+        store_item_id: i64,
+    ) ![]i64 {
+        const stmt = try self.db.prepare(
+            "SELECT tag_id FROM store_item_tags WHERE store_item_id=?;",
+        );
+        defer sqlite.finalize(stmt);
+
+        sqlite.bindInt64(stmt, 1, store_item_id);
+
+        var out: std.ArrayList(i64) = .empty;
+        errdefer out.deinit(allocator);
+
+        while (sqlite.step(stmt) == c.SQLITE_ROW) {
+            try out.append(allocator, sqlite.columnInt64(stmt, 0));
+        }
+
+        return out.toOwnedSlice(allocator);
+    }
 };
+
+pub fn freeTag(allocator: std.mem.Allocator, t: Types.Tag) void {
+    allocator.free(@constCast(t.name));
+    allocator.free(@constCast(t.color));
+}
+
+pub fn freeBookmark(allocator: std.mem.Allocator, b: Types.Bookmark) void {
+    if (b.label.len > 0) allocator.free(@constCast(b.label));
+}
 
 pub fn freeProviderProfile(
     allocator: std.mem.Allocator,
