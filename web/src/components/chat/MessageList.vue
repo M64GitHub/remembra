@@ -132,7 +132,11 @@ onUnmounted(() => {
       @click="scrollToBottom()"
       class="scroll-bottom-btn"
     >
-      &#x2193;
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"
+           fill="none" stroke="currentColor" stroke-width="2"
+           stroke-linecap="round" stroke-linejoin="round">
+        <polyline points="6 9 12 15 18 9"/>
+      </svg>
     </button>
   </div>
 </template>
@@ -144,6 +148,8 @@ onUnmounted(() => {
   overflow-x: hidden;
   padding: var(--space-lg);
   position: relative;
+  display: flex;
+  flex-direction: column;
 }
 
 .messages-container {
@@ -231,24 +237,33 @@ onUnmounted(() => {
 }
 
 .scroll-bottom-btn {
-  position: absolute;
+  position: sticky;
   bottom: var(--space-lg);
-  right: var(--space-lg);
+  align-self: flex-end;
+  margin-top: auto;
   width: 36px;
   height: 36px;
-  background: var(--accent-primary);
-  color: white;
+  background: var(--bg-tertiary);
+  border: var(--border-light);
+  color: var(--text-secondary);
   border-radius: 50%;
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 1.25rem;
   box-shadow: var(--shadow-md);
   transition: all var(--transition-fast);
+  flex-shrink: 0;
+}
+
+.scroll-bottom-btn svg {
+  width: 18px;
+  height: 18px;
 }
 
 .scroll-bottom-btn:hover {
-  background: var(--accent-secondary);
+  background: var(--bg-elevated);
+  color: var(--text-primary);
+  border-color: var(--accent-primary);
   transform: scale(1.1);
 }
 </style>

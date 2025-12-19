@@ -85,7 +85,7 @@ function saveSidebarState() {
             <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"
                  class="remembra-icon">
               <circle cx="50" cy="50" r="45" fill="none" stroke="currentColor"
-                      stroke-width="2.0"/>
+                      stroke-width="3.0"/>
               <g transform="translate(7, 0)">
                 <rect x="22" y="38" width="6" height="28" rx="1"
                       fill="currentColor"/>
@@ -105,7 +105,15 @@ function saveSidebarState() {
             :class="{ active: leftSidebarMode === 'store' }"
             @click="setLeftSidebarMode('store')"
             title="Saved Items"
-          >★</button>
+          >
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"
+                 fill="none" stroke="currentColor" stroke-width="1"
+                 stroke-linecap="round" stroke-linejoin="round"
+                 class="star-icon">
+              <polygon points="12,2 15.09,8.26 22,9.27 17,14.14 18.18,21.02
+                               12,17.77 5.82,21.02 7,14.14 2,9.27 8.91,8.26"/>
+            </svg>
+          </button>
           <button
             class="mode-tab"
             :class="{ active: leftSidebarMode === 'settings' }"
@@ -113,7 +121,7 @@ function saveSidebarState() {
             title="Settings"
           >
             <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"
-                 fill="none" stroke="currentColor" stroke-width="2"
+                 fill="none" stroke="currentColor" stroke-width="1"
                  stroke-linecap="round" stroke-linejoin="round"
                  class="gear-icon">
               <circle cx="12" cy="12" r="3"/>
@@ -254,6 +262,11 @@ function saveSidebarState() {
 }
 
 .gear-icon {
+  width: 16px;
+  height: 16px;
+}
+
+.star-icon {
   width: 16px;
   height: 16px;
 }

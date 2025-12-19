@@ -92,11 +92,11 @@ function resizeTextarea() {
       >
         <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"
              class="thinking-icon" fill="none" stroke="currentColor"
-             stroke-width="1">
+             stroke-width="0.75">
           <circle cx="12" cy="8" r="5"/>
           <path d="M12 13 C6 13 4 18 4 21 L20 21 C20 18 18 13 12 13"/>
-          <circle cx="17" cy="4" r="1.2" fill="currentColor" stroke="none"/>
-          <circle cx="20" cy="6" r="0.8" fill="currentColor" stroke="none"/>
+          <circle cx="20" cy="1" r="1.5" fill="currentColor" stroke="none"/>
+          <circle cx="18" cy="3" r="1.1" fill="currentColor" stroke="none"/>
         </svg>
       </button>
 
@@ -117,7 +117,10 @@ function resizeTextarea() {
         class="stop-btn"
         title="Stop generation"
       >
-        <span class="stop-icon">&#x25A0;</span>
+        <svg class="stop-icon" viewBox="0 0 24 24" fill="none"
+             stroke="currentColor" stroke-width="2">
+          <rect x="6" y="6" width="12" height="12" rx="2"/>
+        </svg>
       </button>
       <button
         v-else
@@ -126,7 +129,9 @@ function resizeTextarea() {
         class="send-btn"
         title="Send message"
       >
-        <span class="send-icon">&#x25B6;</span>
+        <svg class="send-icon" viewBox="0 0 24 24" fill="currentColor">
+          <polygon points="6,4 6,20 20,12"/>
+        </svg>
       </button>
     </div>
 
@@ -214,7 +219,8 @@ function resizeTextarea() {
 }
 
 .send-icon {
-  font-size: 1.25rem;
+  width: 18px;
+  height: 18px;
 }
 
 .stop-btn {
@@ -223,20 +229,37 @@ function resizeTextarea() {
   display: flex;
   align-items: center;
   justify-content: center;
-  background: transparent;
-  border: 1px solid #7a3545;
+  background: var(--bg-primary);
+  border: none;
   border-radius: var(--border-radius);
-  color: #7a3545;
+  color: var(--accent-primary);
   transition: all var(--transition-fast);
+  position: relative;
+}
+
+.stop-btn::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  padding: 1.5px;
+  border-radius: var(--border-radius);
+  background: var(--accent-gradient);
+  -webkit-mask:
+    linear-gradient(#fff 0 0) content-box,
+    linear-gradient(#fff 0 0);
+  -webkit-mask-composite: xor;
+  mask-composite: exclude;
 }
 
 .stop-btn:hover {
-  background: rgba(122, 53, 69, 0.15);
+  background: var(--bg-secondary);
   transform: scale(1.05);
+  box-shadow: var(--shadow-glow);
 }
 
 .stop-icon {
-  font-size: 1rem;
+  width: 18px;
+  height: 18px;
 }
 
 .input-hint {

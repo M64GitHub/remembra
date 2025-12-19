@@ -38,7 +38,14 @@ function getIcon(name) {
 <template>
   <div class="panel" :class="{ collapsed: !isOpen }">
     <button class="panel-header" @click="toggle">
-      <span class="panel-icon" v-if="icon">{{ getIcon(icon) }}</span>
+      <span class="panel-icon" v-if="icon && icon !== 'star'">{{ getIcon(icon) }}</span>
+      <svg v-if="icon === 'star'" class="panel-icon-svg"
+           xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"
+           fill="none" stroke="currentColor" stroke-width="1"
+           stroke-linecap="round" stroke-linejoin="round">
+        <polygon points="12,2 15.09,8.26 22,9.27 17,14.14 18.18,21.02
+                         12,17.77 5.82,21.02 7,14.14 2,9.27 8.91,8.26"/>
+      </svg>
       <span class="panel-title">{{ title }}</span>
       <span class="panel-toggle">{{ isOpen ? '\u25BC' : '\u25B6' }}</span>
     </button>
@@ -90,6 +97,12 @@ function getIcon(name) {
 .panel-icon {
   font-size: var(--text-sm);
   font-weight: 700;
+  opacity: 0.8;
+}
+
+.panel-icon-svg {
+  width: 14px;
+  height: 14px;
   opacity: 0.8;
 }
 
