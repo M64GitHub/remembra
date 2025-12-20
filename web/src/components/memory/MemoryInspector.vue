@@ -11,6 +11,7 @@ const error = ref(null)
 const searchQuery = ref('')
 const filterType = ref('all')
 const hasLoaded = ref(false)
+const referenceTime = ref(Date.now())
 
 const filterOptions = [
   { value: 'all', label: 'All' },
@@ -74,6 +75,7 @@ async function loadMemories() {
   try {
     const data = await memoriesApi.list()
     memories.value = data.memories || []
+    referenceTime.value = Date.now()
     console.log('[Memory] Loaded', memories.value.length, 'memories')
     if (memories.value.length > 0) {
       console.log('[Memory] Sample:', memories.value[0])
@@ -172,6 +174,7 @@ onUnmounted(() => {
           v-for="memory in filteredMemories"
           :key="memory.id"
           :memory="memory"
+          :reference-time="referenceTime"
           @delete="deleteMemory"
         />
       </div>

@@ -6,6 +6,10 @@ const props = defineProps({
     type: Object,
     required: true,
   },
+  referenceTime: {
+    type: Number,
+    default: () => Date.now(),
+  },
 })
 
 const emit = defineEmits(['delete'])
@@ -49,10 +53,10 @@ const confidencePercent = computed(() => {
 
 const formattedTime = computed(() => {
   // Try multiple possible field names
-  const raw = props.memory.updated_at_ms
-           || props.memory.created_at_ms
-           || props.memory.updated_at
+  const raw = props.memory.created_at_ms
+           || props.memory.updated_at_ms
            || props.memory.created_at
+           || props.memory.updated_at
            || props.memory.timestamp_ms
            || props.memory.timestamp
 
@@ -65,10 +69,7 @@ const formattedTime = computed(() => {
   }
 
   const date = new Date(ts)
-  const now = new Date()
-  const diff = now - date
-
-  console.log('[MemoryCard] raw:', raw, 'ts:', ts, 'diff:', diff, 'keys:', Object.keys(props.memory))
+  const diff = props.referenceTime - date
 
   // Allow 4 hour clock skew (server/browser timezone mismatch)
   if (diff < -14400000) return 'future?'

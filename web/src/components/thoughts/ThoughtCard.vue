@@ -6,6 +6,10 @@ const props = defineProps({
     type: Object,
     required: true,
   },
+  referenceTime: {
+    type: Number,
+    default: () => Date.now(),
+  },
 })
 
 const confidencePercent = computed(() => {
@@ -13,8 +17,8 @@ const confidencePercent = computed(() => {
 })
 
 const formattedTime = computed(() => {
-  const raw = props.thought.updated_at_ms
-           || props.thought.created_at_ms
+  const raw = props.thought.created_at_ms
+           || props.thought.updated_at_ms
            || props.thought.timestamp_ms
 
   let ts = Number(raw)
@@ -25,8 +29,7 @@ const formattedTime = computed(() => {
   }
 
   const date = new Date(ts)
-  const now = new Date()
-  const diff = now - date
+  const diff = props.referenceTime - date
 
   if (diff < -14400000) return 'future?'
   if (diff < 60000) return 'just now'

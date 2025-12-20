@@ -46,6 +46,8 @@ pub const HttpServer = struct {
             },
         };
 
+        var decay_counter: u32 = 0;
+
         while (true) {
             const ready_count = posix.poll(
                 &poll_fds,
@@ -56,7 +58,16 @@ pub const HttpServer = struct {
             };
 
             if (ready_count == 0) {
-                runIdleThinkerCheck(allocator, app);
+                decay_counter += 1;
+                if (decay_counter >= 60) {
+                    decay_counter = 0;
+                    const pid = app.store.getActivePersonaId() orelse 1;
+                    const now_ms = app.store.nowMs();
+                    app.store.decayMemory(pid, app.ident.memory_policy, now_ms);
+                }
+                if (app.reflection_enabled) {
+                    runIdleThinkerCheck(allocator, app);
+                }
                 continue;
             }
 
@@ -82,8 +93,6 @@ fn runIdleThinkerCheck(allocator: std.mem.Allocator, app: *App) void {
     const pid = app.store.getActivePersonaId() orelse 1;
     const now_ms = app.store.nowMs();
     const policy = app.ident.memory_policy;
-
-    app.store.decayMemory(pid, policy, now_ms);
 
     IdleThinker.maybeRun(
         allocator,

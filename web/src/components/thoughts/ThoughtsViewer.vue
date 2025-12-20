@@ -9,6 +9,7 @@ const thoughts = ref([])
 const isLoading = ref(false)
 const error = ref(null)
 const hasLoaded = ref(false)
+const referenceTime = ref(Date.now())
 
 async function loadThoughts() {
   if (isLoading.value || appState.isChatBusy) return
@@ -19,6 +20,7 @@ async function loadThoughts() {
   try {
     const data = await thoughtsApi.list()
     thoughts.value = data.memories || []
+    referenceTime.value = Date.now()
     console.log('[Thoughts] Loaded', thoughts.value.length, 'thoughts')
   } catch (e) {
     console.error('[Thoughts] Error:', e)
@@ -99,6 +101,7 @@ onUnmounted(() => {
           v-for="thought in thoughts"
           :key="thought.id"
           :thought="thought"
+          :reference-time="referenceTime"
         />
       </div>
 

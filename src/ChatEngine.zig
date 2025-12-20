@@ -222,8 +222,6 @@ fn runIdleThinker(allocator: std.mem.Allocator, app: *App, pid: i64) !void {
     const now_ms = app.store.nowMs();
     const policy = app.ident.memory_policy;
 
-    app.store.decayMemory(pid, policy, now_ms);
-
     try IdleThinker.maybeRun(
         allocator,
         &app.provider,
