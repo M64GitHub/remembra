@@ -20,6 +20,7 @@ const leftSidebarOpen = ref(true)
 const rightSidebarOpen = ref(true)
 const leftSidebarMode = ref('memory')
 const chatPaneRef = ref(null)
+const isReady = ref(false)
 
 function toggleLeftSidebar() {
   leftSidebarOpen.value = !leftSidebarOpen.value
@@ -57,9 +58,8 @@ async function loadActiveProfile() {
   }
 }
 
-onMounted(() => {
+onMounted(async () => {
   connectEvents()
-  loadActiveProfile()
 
   const savedLeft = localStorage.getItem('remembra-left-sidebar')
   const savedRight = localStorage.getItem('remembra-right-sidebar')
@@ -71,6 +71,9 @@ onMounted(() => {
     appState.leftSidebarMode = savedMode
   }
   appState.rightSidebarOpen = rightSidebarOpen.value
+
+  await loadActiveProfile()
+  isReady.value = true
 })
 
 function saveSidebarState() {
@@ -88,7 +91,12 @@ function saveSidebarState() {
       :right-open="rightSidebarOpen"
     />
 
-    <div class="app-body">
+    <div v-if="!isReady" class="loading-screen">
+      <div class="loading-spinner"></div>
+      <span>Loading...</span>
+    </div>
+
+    <div v-else class="app-body">
       <Sidebar
         side="left"
         :open="leftSidebarOpen"
@@ -244,6 +252,30 @@ function saveSidebarState() {
   color: var(--text-dim);
   font-size: var(--text-sm);
   text-align: center;
+}
+
+.loading-screen {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-md);
+  color: var(--text-dim);
+  font-size: var(--text-sm);
+}
+
+.loading-spinner {
+  width: 32px;
+  height: 32px;
+  border: 3px solid var(--bg-tertiary);
+  border-top-color: var(--accent-primary);
+  border-radius: 50%;
+  animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
 }
 
 .sidebar-mode-toggle {

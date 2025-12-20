@@ -163,6 +163,8 @@ function handleDelete(event) {
   line-height: var(--leading-relaxed);
   white-space: pre-wrap;
   word-break: break-word;
+  max-height: 5.5em;
+  overflow: hidden;
 }
 
 .card-footer {
