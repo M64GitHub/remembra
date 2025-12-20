@@ -20,6 +20,9 @@ const copied = ref(false)
 const saved = ref(false)
 const showTagSelector = ref(false)
 const localTagIds = ref([])
+const editorRef = ref(null)
+const previewRef = ref(null)
+const scrollLockEnabled = ref(true)
 
 const renderedContent = computed(() => renderMarkdown(content.value))
 
@@ -106,6 +109,22 @@ async function handleTagUpdate(tagIds) {
   }
   showTagSelector.value = false
 }
+
+function syncScroll() {
+  if (!scrollLockEnabled.value) return
+  if (viewMode.value !== 'split') return
+  if (!editorRef.value || !previewRef.value) return
+
+  const editor = editorRef.value
+  const preview = previewRef.value
+  const maxScroll = editor.scrollHeight - editor.clientHeight
+
+  if (maxScroll <= 0) return
+
+  const scrollPercent = editor.scrollTop / maxScroll
+  preview.scrollTop = scrollPercent *
+    (preview.scrollHeight - preview.clientHeight)
+}
 </script>
 
 <template>
@@ -173,11 +192,30 @@ async function handleTagUpdate(tagIds) {
           v-if="viewMode !== 'preview'"
           class="editor-pane"
         >
-          <div class="pane-label">Edit</div>
+          <div class="pane-label">
+            Edit
+            <button
+              v-if="viewMode === 'split'"
+              class="scroll-lock-btn"
+              :class="{ active: scrollLockEnabled }"
+              @click="scrollLockEnabled = !scrollLockEnabled"
+              :title="scrollLockEnabled ? 'Scroll sync ON' : 'Scroll sync OFF'"
+            >
+              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"
+                   fill="none" stroke="currentColor" stroke-width="1"
+                   stroke-linecap="round" stroke-linejoin="round"
+                   class="link-icon">
+                <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/>
+                <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/>
+              </svg>
+            </button>
+          </div>
           <textarea
+            ref="editorRef"
             v-model="content"
             class="content-editor"
             placeholder="Enter markdown content..."
+            @scroll="syncScroll"
           ></textarea>
         </div>
         <div
@@ -186,6 +224,7 @@ async function handleTagUpdate(tagIds) {
         >
           <div class="pane-label">Preview</div>
           <div
+            ref="previewRef"
             class="content-view markdown-content"
             v-html="renderedContent"
           ></div>
@@ -389,12 +428,54 @@ async function handleTagUpdate(tagIds) {
 }
 
 .pane-label {
+  display: flex;
+  align-items: center;
+  height: 18px;
   font-size: var(--text-xs);
   color: var(--text-dim);
   text-transform: uppercase;
   letter-spacing: 0.05em;
   margin-bottom: var(--space-xs);
   padding-left: var(--space-xs);
+}
+
+.scroll-lock-btn {
+  opacity: 0;
+  margin-left: auto;
+  padding: 2px;
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  transition: all var(--transition-fast);
+  border-radius: 3px;
+  color: var(--text-dim);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.scroll-lock-btn .link-icon {
+  width: 10px;
+  height: 10px;
+}
+
+.editor-pane:hover .scroll-lock-btn {
+  opacity: 0.7;
+}
+
+.scroll-lock-btn:not(.active) {
+  color: var(--text-secondary);
+}
+
+.scroll-lock-btn:hover {
+  opacity: 1 !important;
+  background: var(--bg-hover);
+}
+
+.scroll-lock-btn.active {
+  opacity: 1;
+  color: var(--accent-primary);
+  background: var(--accent-glow);
 }
 
 .content-view {
