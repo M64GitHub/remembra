@@ -62,8 +62,8 @@ async function saveItem(id, content) {
     const idx = items.value.findIndex(i => i.id === id)
     if (idx >= 0) {
       items.value[idx] = { ...items.value[idx], content }
+      editingItem.value = { ...items.value[idx] }
     }
-    closeEditor()
   } catch (e) {
     console.error('Failed to save store item:', e)
   }
@@ -171,8 +171,10 @@ onUnmounted(() => {
     <StoreEditorModal
       v-if="editingItem"
       :item="editingItem"
+      :all-tags="allTags"
       @close="closeEditor"
       @save="saveItem"
+      @update="handleUpdate"
     />
   </div>
 </template>
