@@ -61,6 +61,10 @@ export function onEvent(kind, callback) {
   }
 }
 
+export function emitEvent(kind, data = {}) {
+  dispatchEvent({ kind, ...data })
+}
+
 export function disconnectEvents() {
   if (reconnectTimeout) {
     clearTimeout(reconnectTimeout)

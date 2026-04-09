@@ -490,6 +490,61 @@ pub const MemoryStoreSqlite = struct {
         return try out.toOwnedSlice(allocator);
     }
 
+    pub const SearchResult = struct {
+        id: i64,
+        role: Types.Role,
+        content: []const u8,
+        created_at_ms: i64,
+    };
+
+    pub fn searchMessages(
+        self: *MemoryStoreSqlite,
+        allocator: std.mem.Allocator,
+        persona_id: i64,
+        query: []const u8,
+        max_results: usize,
+    ) ![]SearchResult {
+        const stmt = try self.db.prepare(
+            "SELECT id, role, content, created_at_ms FROM messages " ++
+                "WHERE persona_id=? AND content LIKE ? " ++
+                "ORDER BY id DESC LIMIT ?;",
+        );
+        defer sqlite.finalize(stmt);
+
+        var pattern_buf: [256]u8 = undefined;
+        const pattern = std.fmt.bufPrint(
+            &pattern_buf,
+            "%{s}%",
+            .{query},
+        ) catch return error.QueryTooLong;
+
+        sqlite.bindInt64(stmt, 1, persona_id);
+        sqlite.bindText(stmt, 2, pattern);
+        sqlite.bindInt(stmt, 3, @intCast(max_results));
+
+        var out: std.ArrayList(SearchResult) = .empty;
+        errdefer {
+            for (out.items) |m| allocator.free(@constCast(m.content));
+            out.deinit(allocator);
+        }
+
+        while (sqlite.step(stmt) == c.SQLITE_ROW) {
+            const id = sqlite.columnInt64(stmt, 0);
+            const role_i = sqlite.columnInt(stmt, 1);
+            const txt = sqlite.columnText(stmt, 2);
+            const created = sqlite.columnInt64(stmt, 3);
+
+            try out.append(allocator, .{
+                .id = id,
+                .role = @enumFromInt(role_i),
+                .content = try allocator.dupe(u8, txt),
+                .created_at_ms = created,
+            });
+        }
+
+        return try out.toOwnedSlice(allocator);
+    }
+
     pub fn loadMessagesSince(
         self: *MemoryStoreSqlite,
         allocator: std.mem.Allocator,
@@ -1843,7 +1898,7 @@ pub const MemoryStoreSqlite = struct {
 
     pub fn getMaxRecentMessages(self: *MemoryStoreSqlite) usize {
         const val = self.getMetaI64("max_recent_messages") catch return 24;
-        if (val <= 0) return 24;
+        if (val < 0) return 24;
         return @intCast(val);
     }
 

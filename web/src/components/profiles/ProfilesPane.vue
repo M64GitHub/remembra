@@ -2,6 +2,7 @@
 import { ref, onMounted, onUnmounted, watch } from 'vue'
 import { profiles as profilesApi, prompts as promptsApi } from '../../api/client.js'
 import { appState, reloadAllData, registerReload } from '../../stores/appState.js'
+import { emitEvent } from '../../stores/eventBus.js'
 import ProviderCard from './ProviderCard.vue'
 import PersonaCard from './PersonaCard.vue'
 import PersonaEditorModal from './PersonaEditorModal.vue'
@@ -111,6 +112,7 @@ async function deletePersona(id) {
   try {
     await profilesApi.personas.remove(id)
     personas.value = personas.value.filter(p => p.id !== id)
+    emitEvent('personas_changed')
   } catch (e) {
     error.value = e.message
   }
@@ -154,6 +156,7 @@ async function savePersona(personaData) {
     }
 
     await loadProfiles()
+    emitEvent('personas_changed')
     closePersonaEditor()
   } catch (e) {
     error.value = e.message

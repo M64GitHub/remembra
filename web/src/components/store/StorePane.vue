@@ -151,7 +151,8 @@ onUnmounted(() => {
     <div class="store-list">
       <div v-if="isLoading" class="loading">Loading...</div>
       <div v-else-if="filteredItems.length === 0" class="empty">
-        No stored items
+        <p>No stored items</p>
+        <p class="hint">Select messages and click Store to save snippets</p>
       </div>
       <StoreCard
         v-for="item in filteredItems"
@@ -236,6 +237,12 @@ onUnmounted(() => {
   text-align: center;
   color: var(--text-dim);
   font-size: var(--text-sm);
+}
+
+.empty .hint {
+  font-size: var(--text-xs);
+  margin-top: var(--space-xs);
+  opacity: 0.7;
 }
 
 .store-footer {

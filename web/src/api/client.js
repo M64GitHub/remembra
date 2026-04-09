@@ -77,6 +77,10 @@ export const chat = {
     if (before !== null) params.set('before', String(before));
     return get(`/api/messages?${params}`);
   },
+  search: (query, limit = 50) => {
+    const params = new URLSearchParams({ q: query, limit: String(limit) });
+    return get(`/api/messages/search?${params}`);
+  },
   stream: async (message, signal, onChunk, onComplete, onError, onReflection) => {
     try {
       const response = await fetch(API_BASE + '/api/chat/stream', {

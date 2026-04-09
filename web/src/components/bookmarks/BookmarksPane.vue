@@ -143,7 +143,8 @@ onUnmounted(() => {
     <div class="bookmarks-list">
       <div v-if="isLoading" class="loading">Loading...</div>
       <div v-else-if="filteredItems.length === 0" class="empty">
-        No bookmarks yet
+        <p>No bookmarks yet</p>
+        <p class="hint">Click the star on any message to save it here</p>
       </div>
       <BookmarkCard
         v-for="bookmark in filteredItems"
@@ -219,6 +220,12 @@ onUnmounted(() => {
   text-align: center;
   color: var(--text-dim);
   font-size: var(--text-sm);
+}
+
+.empty .hint {
+  font-size: var(--text-xs);
+  margin-top: var(--space-xs);
+  opacity: 0.7;
 }
 
 .bookmarks-footer {

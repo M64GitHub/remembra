@@ -12,6 +12,7 @@ import ProfilesPane from './components/profiles/ProfilesPane.vue'
 import StorePane from './components/store/StorePane.vue'
 import BookmarksPane from './components/bookmarks/BookmarksPane.vue'
 import SettingsPane from './components/settings/SettingsPane.vue'
+import SearchOverlay from './components/chat/SearchOverlay.vue'
 import { appState } from './stores/appState.js'
 import { connectEvents } from './stores/eventBus.js'
 import { profiles as profilesApi } from './api/client.js'
@@ -21,6 +22,7 @@ const rightSidebarOpen = ref(true)
 const leftSidebarMode = ref('memory')
 const chatPaneRef = ref(null)
 const isReady = ref(false)
+const showSearch = ref(false)
 
 function toggleLeftSidebar() {
   leftSidebarOpen.value = !leftSidebarOpen.value
@@ -87,8 +89,15 @@ function saveSidebarState() {
     <TopBar
       @toggle-left="toggleLeftSidebar(); saveSidebarState()"
       @toggle-right="toggleRightSidebar(); saveSidebarState()"
+      @open-search="showSearch = true"
       :left-open="leftSidebarOpen"
       :right-open="rightSidebarOpen"
+    />
+
+    <SearchOverlay
+      v-if="showSearch"
+      @close="showSearch = false"
+      @jump-to="scrollToMessage"
     />
 
     <div v-if="!isReady" class="loading-screen">

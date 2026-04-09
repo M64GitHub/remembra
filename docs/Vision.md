@@ -152,7 +152,7 @@ On the first interaction after absence, REMEMBRA performs a re-entry ritual:
 - surfaces the most recent episode summary (if any)
 - optionally incorporates a recent internal reflection
 
-This happens once — then disappears.
+This happens once - then disappears.
 
 Continuity is acknowledged, not repeated.
 

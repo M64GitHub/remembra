@@ -164,6 +164,8 @@ fn handleRequest(
         try handleCommand(allocator, app, request);
     } else if (method == .GET and std.mem.eql(u8, target, "/health")) {
         try respondJson(request, "{\"status\":\"ok\"}");
+    } else if (method == .GET and startsWith(target, "/api/messages/search")) {
+        try handleSearchMessages(allocator, app, request);
     } else if (method == .GET and startsWith(target, "/api/messages")) {
         try handleGetMessages(allocator, app, request);
     } else if (method == .GET and std.mem.eql(u8, target, "/api/context")) {
@@ -1138,6 +1140,73 @@ fn buildMessagesJson(
     return out.toOwnedSlice(allocator);
 }
 
+fn handleSearchMessages(
+    allocator: std.mem.Allocator,
+    app: *App,
+    request: *std.http.Server.Request,
+) !void {
+    const target = request.head.target;
+
+    var query_text: ?[]const u8 = null;
+    var limit: usize = 50;
+
+    if (std.mem.indexOf(u8, target, "?")) |q_idx| {
+        const query = target[q_idx + 1 ..];
+        query_text = parseQueryStr(query, "q");
+        if (parseQueryInt(query, "limit")) |l| {
+            limit = @intCast(@min(l, 100));
+        }
+    }
+
+    if (query_text == null or query_text.?.len == 0) {
+        try respondJson(request, "{\"results\":[]}");
+        return;
+    }
+
+    const pid = app.store.getActivePersonaId() orelse 1;
+    const results = app.store.searchMessages(
+        allocator,
+        pid,
+        query_text.?,
+        limit,
+    ) catch |e| {
+        app.cli.msg(.err, "Search error: {}", .{e});
+        try respondError(request, .internal_server_error, "Search failed");
+        return;
+    };
+    defer {
+        for (results) |r| allocator.free(@constCast(r.content));
+        allocator.free(results);
+    }
+
+    var out: std.ArrayList(u8) = .empty;
+    errdefer out.deinit(allocator);
+
+    try out.appendSlice(allocator, "{\"results\":[");
+
+    for (results, 0..) |r, i| {
+        if (i > 0) try out.append(allocator, ',');
+
+        const escaped = try escapeJsonString(allocator, r.content);
+        defer allocator.free(escaped);
+
+        const role_str = Types.roleToStr(r.role);
+
+        try out.writer(allocator).print(
+            "{{\"id\":{d},\"role\":\"{s}\",\"content\":\"{s}\"," ++
+                "\"created_at_ms\":{d}}}",
+            .{ r.id, role_str, escaped, r.created_at_ms },
+        );
+    }
+
+    try out.appendSlice(allocator, "]}");
+
+    const json = try out.toOwnedSlice(allocator);
+    defer allocator.free(json);
+
+    try respondJson(request, json);
+}
+
 fn handleGetContext(
     allocator: std.mem.Allocator,
     app: *App,
@@ -1154,7 +1223,7 @@ fn handleGetContext(
     try out.writer(allocator).print(
         "{{\"system_prompt\":\"{s}\",\"memory_count\":{d}," ++
             "\"recent_count\":{d},\"max_recent_messages\":{d}," ++
-            "\"timestamp_ms\":{d}}}",
+            "\"timestamp_ms\":{d},\"memory_ids\":[",
         .{
             escaped_prompt,
             ctx.memory_count,
@@ -1163,6 +1232,13 @@ fn handleGetContext(
             ctx.timestamp_ms,
         },
     );
+
+    // Serialize memory IDs
+    for (ctx.memory_ids, 0..) |id, i| {
+        if (i > 0) try out.writer(allocator).writeAll(",");
+        try out.writer(allocator).print("{d}", .{id});
+    }
+    try out.writer(allocator).writeAll("]}");
 
     const json = try out.toOwnedSlice(allocator);
     defer allocator.free(json);
@@ -1304,7 +1380,7 @@ fn handlePostContextWindow(
     };
 
     const value: usize = switch (value_node) {
-        .integer => |i| if (i > 0) @intCast(i) else 1,
+        .integer => |i| if (i >= 0) @intCast(i) else 1,
         else => {
             try respondError(request, .bad_request, "'value' must be an integer");
             return;

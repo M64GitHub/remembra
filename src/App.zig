@@ -22,6 +22,7 @@ pub const LastContext = struct {
     recent_count: usize = 0,
     max_recent_messages: usize = 24,
     timestamp_ms: i64 = 0,
+    memory_ids: []const i64 = &[_]i64{},
 };
 
 pub const App = struct {
@@ -38,6 +39,8 @@ pub const App = struct {
     include_ai_name: bool = true,
     last_context: LastContext = .{},
     last_context_prompt_buf: [32768]u8 = undefined,
+    last_context_memory_ids_buf: [128]i64 = undefined,
+    last_context_memory_ids_len: usize = 0,
 
     // Buffers for persona data loaded from DB
     persona_name_buf: [64]u8 = undefined,

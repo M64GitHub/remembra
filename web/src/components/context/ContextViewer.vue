@@ -1,9 +1,14 @@
 <script setup>
 import { ref, onMounted, onUnmounted, computed, watch } from 'vue'
-import { context as contextApi, systemConfig } from '../../api/client.js'
+import {
+  context as contextApi,
+  systemConfig,
+  memories as memoriesApi,
+} from '../../api/client.js'
 import { appState, registerReload } from '../../stores/appState.js'
 
 const contextData = ref(null)
+const allMemories = ref([])
 const isLoading = ref(false)
 const error = ref(null)
 const isSavingConfig = ref(false)
@@ -12,6 +17,7 @@ const expandedSections = ref({
   settings: true,
   prompt: true,
   stats: true,
+  memories: false,
 })
 
 const formattedTime = computed(() => {
@@ -35,6 +41,26 @@ const promptChars = computed(() => {
   return contextData.value.system_prompt.length
 })
 
+const estimatedTokens = computed(() => {
+  if (!promptChars.value) return 0
+  return Math.round(promptChars.value / 4)
+})
+
+const usedMemories = computed(() => {
+  if (!contextData.value?.memory_ids?.length) return []
+  const idSet = new Set(contextData.value.memory_ids)
+  return allMemories.value.filter(m => idSet.has(m.id))
+})
+
+async function loadMemories() {
+  try {
+    const data = await memoriesApi.list()
+    allMemories.value = data.memories || []
+  } catch (e) {
+    console.error('[Context] Failed to load memories:', e)
+  }
+}
+
 async function loadContext() {
   if (isLoading.value || appState.isChatBusy) return
 
@@ -45,6 +71,9 @@ async function loadContext() {
     const data = await contextApi.get()
     contextData.value = data
     console.log('[Context] Loaded:', data)
+    if (data.memory_ids?.length) {
+      await loadMemories()
+    }
   } catch (e) {
     console.error('[Context] Error:', e)
     error.value = e.message
@@ -163,7 +192,7 @@ onUnmounted(() => {
               <input
                 id="context-window-size"
                 type="number"
-                min="1"
+                min="0"
                 max="200"
                 v-model.number="appState.maxRecentMessages"
                 @input="saveContextWindow"
@@ -206,6 +235,34 @@ onUnmounted(() => {
             <span class="stat-label">Prompt chars:</span>
             <span class="stat-value">{{ promptChars.toLocaleString() }}</span>
           </div>
+          <div class="stat-row">
+            <span class="stat-label">Est. tokens:</span>
+            <span class="stat-value">~{{ estimatedTokens.toLocaleString() }}</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Memories Used Section -->
+      <div class="context-section" v-if="usedMemories.length > 0">
+        <button
+          class="section-header"
+          @click="toggleSection('memories')"
+        >
+          <span class="section-title">Memories Used ({{ usedMemories.length }})</span>
+          <span class="section-toggle">
+            {{ expandedSections.memories ? '\u25BC' : '\u25B6' }}
+          </span>
+        </button>
+        <div class="section-body memory-list" v-show="expandedSections.memories">
+          <div
+            v-for="mem in usedMemories"
+            :key="mem.id"
+            class="memory-item"
+          >
+            <span class="memory-subject">{{ mem.subject }}</span>
+            <span class="memory-predicate">{{ mem.predicate }}</span>
+            <span class="memory-object">{{ mem.object }}</span>
+          </div>
         </div>
       </div>
 
@@ -228,7 +285,7 @@ onUnmounted(() => {
 
     <div class="context-empty" v-else-if="!isLoading && !error">
       <p>No context yet</p>
-      <p class="text-dim">Send a message to generate context</p>
+      <p class="hint">Send a message to generate context</p>
     </div>
 
     <div class="context-loading" v-if="isLoading">
@@ -402,6 +459,36 @@ onUnmounted(() => {
   border-radius: var(--border-radius-sm);
 }
 
+.memory-list {
+  max-height: 200px;
+  overflow-y: auto;
+}
+
+.memory-item {
+  padding: 4px 0;
+  border-bottom: 1px solid var(--border-color);
+  font-size: 10px;
+  line-height: 1.3;
+}
+
+.memory-item:last-child {
+  border-bottom: none;
+}
+
+.memory-subject {
+  color: var(--accent-primary);
+  font-weight: 500;
+}
+
+.memory-predicate {
+  color: var(--text-dim);
+  margin: 0 4px;
+}
+
+.memory-object {
+  color: var(--text-secondary);
+}
+
 .context-empty {
   flex: 1;
   display: flex;
@@ -411,6 +498,12 @@ onUnmounted(() => {
   text-align: center;
   color: var(--text-muted);
   padding: var(--space-lg);
+}
+
+.context-empty .hint {
+  font-size: var(--text-xs);
+  margin-top: var(--space-xs);
+  opacity: 0.7;
 }
 
 .context-loading {

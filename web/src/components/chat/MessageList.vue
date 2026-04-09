@@ -124,7 +124,7 @@ onUnmounted(() => {
     <div class="empty-state" v-if="!isLoading && messages.length === 0">
       <div class="empty-icon">&#x1F4AD;</div>
       <p>No messages yet</p>
-      <p class="text-dim">Start a conversation with REMEMBRA</p>
+      <p class="hint">Type below to start a conversation</p>
     </div>
 
     <button
@@ -234,6 +234,11 @@ onUnmounted(() => {
 
 .empty-state p {
   margin: var(--space-xs) 0;
+}
+
+.empty-state .hint {
+  font-size: var(--text-xs);
+  opacity: 0.7;
 }
 
 .scroll-bottom-btn {

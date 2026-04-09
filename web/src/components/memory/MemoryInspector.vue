@@ -180,7 +180,10 @@ onUnmounted(() => {
       </div>
 
       <div class="inspector-empty" v-else-if="!isLoading">
-        <p v-if="memories.length === 0">No memories yet</p>
+        <template v-if="memories.length === 0">
+          <p>No memories yet</p>
+          <p class="hint">Chat with the AI and it will remember important facts</p>
+        </template>
         <p v-else>No matches</p>
       </div>
 
@@ -277,6 +280,12 @@ onUnmounted(() => {
   text-align: center;
   color: var(--text-dim);
   padding: var(--space-lg);
+}
+
+.inspector-empty .hint {
+  font-size: var(--text-xs);
+  margin-top: var(--space-xs);
+  opacity: 0.7;
 }
 
 .inspector-loading {

@@ -535,11 +535,19 @@ fn storeLastContext(
         system_prompt[0..copy_len],
     );
 
+    // Extract memory IDs from context
+    const mem_id_count = @min(ctx.memory.len, app.last_context_memory_ids_buf.len);
+    for (0..mem_id_count) |i| {
+        app.last_context_memory_ids_buf[i] = ctx.memory[i].id;
+    }
+    app.last_context_memory_ids_len = mem_id_count;
+
     app.last_context = .{
         .system_prompt = app.last_context_prompt_buf[0..copy_len],
         .memory_count = ctx.memory.len,
         .recent_count = ctx.recent.len,
         .max_recent_messages = app.max_recent_messages,
         .timestamp_ms = ctx.now_ms,
+        .memory_ids = app.last_context_memory_ids_buf[0..mem_id_count],
     };
 }

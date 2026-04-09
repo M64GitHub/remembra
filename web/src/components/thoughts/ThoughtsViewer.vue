@@ -106,7 +106,8 @@ onUnmounted(() => {
       </div>
 
       <div class="viewer-empty" v-else-if="!isLoading">
-        No thoughts yet...
+        <p>No thoughts yet</p>
+        <p class="hint">Enable reflection mode to see AI's internal reflections</p>
       </div>
 
       <div class="viewer-loading" v-if="isLoading">
@@ -184,6 +185,12 @@ onUnmounted(() => {
   text-align: center;
   color: var(--text-dim);
   padding: var(--space-lg);
+}
+
+.viewer-empty .hint {
+  font-size: var(--text-xs);
+  margin-top: var(--space-xs);
+  opacity: 0.7;
   font-style: italic;
 }
 
