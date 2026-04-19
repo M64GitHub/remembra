@@ -77,6 +77,9 @@ pub const SCHEMA =
     \\    size          INTEGER NOT NULL DEFAULT 0,
     \\    digest        TEXT NOT NULL DEFAULT '',
     \\    modified_at   TEXT NOT NULL DEFAULT '',
+    \\    provider_type TEXT NOT NULL DEFAULT 'ollama',
+    \\    base_url      TEXT NOT NULL DEFAULT '',
+    \\    api_key       TEXT NOT NULL DEFAULT '',
     \\    created_at_ms INTEGER NOT NULL
     \\);
     \\
@@ -175,6 +178,7 @@ pub const MemoryStoreSqlite = struct {
 
     pub fn ensureSchema(self: *MemoryStoreSqlite) !void {
         try self.db.exec(SCHEMA);
+        try self.migrateProviderProfiles();
         try self.setMetaDefault("episode_cutoff_index", "0");
         try self.setMetaDefault("time_offset_ms", "0");
         try self.setMetaDefault("last_user_msg_ms", "0");
@@ -187,20 +191,61 @@ pub const MemoryStoreSqlite = struct {
         try self.seedIdentityPresets();
     }
 
+    fn migrateProviderProfiles(self: *MemoryStoreSqlite) !void {
+        var have_type = false;
+        var have_base_url = false;
+        var have_api_key = false;
+
+        const info_stmt = try self.db.prepare(
+            "PRAGMA table_info(provider_profiles);",
+        );
+        defer sqlite.finalize(info_stmt);
+
+        while (sqlite.step(info_stmt) == c.SQLITE_ROW) {
+            const col_name = sqlite.columnText(info_stmt, 1);
+            if (std.mem.eql(u8, col_name, "provider_type")) have_type = true;
+            if (std.mem.eql(u8, col_name, "base_url")) have_base_url = true;
+            if (std.mem.eql(u8, col_name, "api_key")) have_api_key = true;
+        }
+
+        if (!have_type) {
+            self.db.exec(
+                "ALTER TABLE provider_profiles ADD COLUMN " ++
+                    "provider_type TEXT NOT NULL DEFAULT 'ollama';",
+            ) catch {};
+        }
+        if (!have_base_url) {
+            self.db.exec(
+                "ALTER TABLE provider_profiles ADD COLUMN " ++
+                    "base_url TEXT NOT NULL DEFAULT '';",
+            ) catch {};
+        }
+        if (!have_api_key) {
+            self.db.exec(
+                "ALTER TABLE provider_profiles ADD COLUMN " ++
+                    "api_key TEXT NOT NULL DEFAULT '';",
+            ) catch {};
+        }
+
+        self.db.exec(
+            "UPDATE provider_profiles SET base_url = ollama_url " ++
+                "WHERE base_url = '' AND ollama_url <> '';",
+        ) catch {};
+    }
+
     fn seedDefaultProfiles(self: *MemoryStoreSqlite) !void {
         // Provider: create if none exist
         const prov_count = try self.scalarI64(
             "SELECT COUNT(*) FROM provider_profiles;",
         );
         if (prov_count == 0) {
-            const provider_id = try self.createProviderProfile(
-                "local-ollama",
-                "http://127.0.0.1:11434",
-                "llama3.2",
-                0,
-                "",
-                "",
-            );
+            const provider_id = try self.createProviderProfile(.{
+                .name = "local-ollama",
+                .ollama_url = "http://127.0.0.1:11434",
+                .model = "llama3.2",
+                .provider_type = "ollama",
+                .base_url = "http://127.0.0.1:11434",
+            });
             try self.setMetaI64("active_provider_id", provider_id);
         }
 
@@ -1453,31 +1498,42 @@ pub const MemoryStoreSqlite = struct {
         return @intCast(sqlite.columnInt64(stmt, 0));
     }
 
-    pub fn createProviderProfile(
-        self: *MemoryStoreSqlite,
+    pub const ProviderArgs = struct {
         name: []const u8,
         ollama_url: []const u8,
         model: []const u8,
-        size: i64,
-        digest: []const u8,
-        modified_at: []const u8,
+        size: i64 = 0,
+        digest: []const u8 = "",
+        modified_at: []const u8 = "",
+        provider_type: []const u8 = "ollama",
+        base_url: []const u8 = "",
+        api_key: []const u8 = "",
+    };
+
+    pub fn createProviderProfile(
+        self: *MemoryStoreSqlite,
+        args: ProviderArgs,
     ) !i64 {
         const now = self.nowMs();
 
         const stmt = try self.db.prepare(
             "INSERT INTO provider_profiles(name, ollama_url, model, " ++
-                "size, digest, modified_at, created_at_ms) " ++
-                "VALUES(?, ?, ?, ?, ?, ?, ?);",
+                "size, digest, modified_at, provider_type, base_url, " ++
+                "api_key, created_at_ms) " ++
+                "VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?);",
         );
         defer sqlite.finalize(stmt);
 
-        sqlite.bindText(stmt, 1, name);
-        sqlite.bindText(stmt, 2, ollama_url);
-        sqlite.bindText(stmt, 3, model);
-        sqlite.bindInt64(stmt, 4, size);
-        sqlite.bindText(stmt, 5, digest);
-        sqlite.bindText(stmt, 6, modified_at);
-        sqlite.bindInt64(stmt, 7, now);
+        sqlite.bindText(stmt, 1, args.name);
+        sqlite.bindText(stmt, 2, args.ollama_url);
+        sqlite.bindText(stmt, 3, args.model);
+        sqlite.bindInt64(stmt, 4, args.size);
+        sqlite.bindText(stmt, 5, args.digest);
+        sqlite.bindText(stmt, 6, args.modified_at);
+        sqlite.bindText(stmt, 7, args.provider_type);
+        sqlite.bindText(stmt, 8, args.base_url);
+        sqlite.bindText(stmt, 9, args.api_key);
+        sqlite.bindInt64(stmt, 10, now);
 
         if (sqlite.step(stmt) != c.SQLITE_DONE) {
             return error.SqliteStepFailed;
@@ -1493,7 +1549,8 @@ pub const MemoryStoreSqlite = struct {
     ) !?Types.ProviderProfile {
         const stmt = try self.db.prepare(
             "SELECT id, name, ollama_url, model, size, digest, " ++
-                "modified_at, created_at_ms FROM provider_profiles WHERE id=?;",
+                "modified_at, provider_type, base_url, api_key, " ++
+                "created_at_ms FROM provider_profiles WHERE id=?;",
         );
         defer sqlite.finalize(stmt);
 
@@ -1509,7 +1566,13 @@ pub const MemoryStoreSqlite = struct {
             .size = sqlite.columnInt64(stmt, 4),
             .digest = try allocator.dupe(u8, sqlite.columnText(stmt, 5)),
             .modified_at = try allocator.dupe(u8, sqlite.columnText(stmt, 6)),
-            .created_at_ms = sqlite.columnInt64(stmt, 7),
+            .provider_type = try allocator.dupe(
+                u8,
+                sqlite.columnText(stmt, 7),
+            ),
+            .base_url = try allocator.dupe(u8, sqlite.columnText(stmt, 8)),
+            .api_key = try allocator.dupe(u8, sqlite.columnText(stmt, 9)),
+            .created_at_ms = sqlite.columnInt64(stmt, 10),
         };
     }
 
@@ -1519,8 +1582,8 @@ pub const MemoryStoreSqlite = struct {
     ) ![]Types.ProviderProfile {
         const stmt = try self.db.prepare(
             "SELECT id, name, ollama_url, model, size, digest, " ++
-                "modified_at, created_at_ms FROM provider_profiles " ++
-                "ORDER BY id ASC;",
+                "modified_at, provider_type, base_url, api_key, " ++
+                "created_at_ms FROM provider_profiles ORDER BY id ASC;",
         );
         defer sqlite.finalize(stmt);
 
@@ -1532,6 +1595,9 @@ pub const MemoryStoreSqlite = struct {
                 allocator.free(@constCast(p.model));
                 allocator.free(@constCast(p.digest));
                 allocator.free(@constCast(p.modified_at));
+                allocator.free(@constCast(p.provider_type));
+                allocator.free(@constCast(p.base_url));
+                allocator.free(@constCast(p.api_key));
             }
             out.deinit(allocator);
         }
@@ -1539,13 +1605,40 @@ pub const MemoryStoreSqlite = struct {
         while (sqlite.step(stmt) == c.SQLITE_ROW) {
             try out.append(allocator, .{
                 .id = sqlite.columnInt64(stmt, 0),
-                .name = try allocator.dupe(u8, sqlite.columnText(stmt, 1)),
-                .ollama_url = try allocator.dupe(u8, sqlite.columnText(stmt, 2)),
-                .model = try allocator.dupe(u8, sqlite.columnText(stmt, 3)),
+                .name = try allocator.dupe(
+                    u8,
+                    sqlite.columnText(stmt, 1),
+                ),
+                .ollama_url = try allocator.dupe(
+                    u8,
+                    sqlite.columnText(stmt, 2),
+                ),
+                .model = try allocator.dupe(
+                    u8,
+                    sqlite.columnText(stmt, 3),
+                ),
                 .size = sqlite.columnInt64(stmt, 4),
-                .digest = try allocator.dupe(u8, sqlite.columnText(stmt, 5)),
-                .modified_at = try allocator.dupe(u8, sqlite.columnText(stmt, 6)),
-                .created_at_ms = sqlite.columnInt64(stmt, 7),
+                .digest = try allocator.dupe(
+                    u8,
+                    sqlite.columnText(stmt, 5),
+                ),
+                .modified_at = try allocator.dupe(
+                    u8,
+                    sqlite.columnText(stmt, 6),
+                ),
+                .provider_type = try allocator.dupe(
+                    u8,
+                    sqlite.columnText(stmt, 7),
+                ),
+                .base_url = try allocator.dupe(
+                    u8,
+                    sqlite.columnText(stmt, 8),
+                ),
+                .api_key = try allocator.dupe(
+                    u8,
+                    sqlite.columnText(stmt, 9),
+                ),
+                .created_at_ms = sqlite.columnInt64(stmt, 10),
             });
         }
 
@@ -1568,26 +1661,25 @@ pub const MemoryStoreSqlite = struct {
     pub fn updateProviderProfile(
         self: *MemoryStoreSqlite,
         id: i64,
-        name: []const u8,
-        ollama_url: []const u8,
-        model: []const u8,
-        size: i64,
-        digest: []const u8,
-        modified_at: []const u8,
+        args: ProviderArgs,
     ) !void {
         const stmt = try self.db.prepare(
             "UPDATE provider_profiles SET name=?, ollama_url=?, model=?, " ++
-                "size=?, digest=?, modified_at=? WHERE id=?;",
+                "size=?, digest=?, modified_at=?, provider_type=?, " ++
+                "base_url=?, api_key=? WHERE id=?;",
         );
         defer sqlite.finalize(stmt);
 
-        sqlite.bindText(stmt, 1, name);
-        sqlite.bindText(stmt, 2, ollama_url);
-        sqlite.bindText(stmt, 3, model);
-        sqlite.bindInt64(stmt, 4, size);
-        sqlite.bindText(stmt, 5, digest);
-        sqlite.bindText(stmt, 6, modified_at);
-        sqlite.bindInt64(stmt, 7, id);
+        sqlite.bindText(stmt, 1, args.name);
+        sqlite.bindText(stmt, 2, args.ollama_url);
+        sqlite.bindText(stmt, 3, args.model);
+        sqlite.bindInt64(stmt, 4, args.size);
+        sqlite.bindText(stmt, 5, args.digest);
+        sqlite.bindText(stmt, 6, args.modified_at);
+        sqlite.bindText(stmt, 7, args.provider_type);
+        sqlite.bindText(stmt, 8, args.base_url);
+        sqlite.bindText(stmt, 9, args.api_key);
+        sqlite.bindInt64(stmt, 10, id);
 
         if (sqlite.step(stmt) != c.SQLITE_DONE) {
             return error.SqliteStepFailed;
@@ -2457,6 +2549,10 @@ pub fn freeProviderProfile(
     allocator.free(@constCast(p.model));
     if (p.digest.len > 0) allocator.free(@constCast(p.digest));
     if (p.modified_at.len > 0) allocator.free(@constCast(p.modified_at));
+    if (p.provider_type.len > 0)
+        allocator.free(@constCast(p.provider_type));
+    if (p.base_url.len > 0) allocator.free(@constCast(p.base_url));
+    if (p.api_key.len > 0) allocator.free(@constCast(p.api_key));
 }
 
 pub fn freePersonaStrings(

@@ -204,6 +204,11 @@ export const ollama = {
     get(`/api/ollama/models?url=${encodeURIComponent(url)}`),
 };
 
+export const openrouter = {
+  listModels: (profileId) =>
+    get(`/api/openrouter/models?profile_id=${profileId}`),
+};
+
 export const prompts = {
   get: (personaId) => get(`/api/prompts?persona_id=${personaId}`),
   getDefaults: () => get('/api/prompts/defaults'),

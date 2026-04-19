@@ -158,6 +158,23 @@ pub const LlmParams = struct {
     max_tokens: u32,
 };
 
+pub const ProviderType = enum {
+    ollama,
+    openrouter,
+
+    pub fn fromStr(s: []const u8) ProviderType {
+        if (std.mem.eql(u8, s, "openrouter")) return .openrouter;
+        return .ollama;
+    }
+
+    pub fn toStr(self: ProviderType) []const u8 {
+        return switch (self) {
+            .ollama => "ollama",
+            .openrouter => "openrouter",
+        };
+    }
+};
+
 pub const ProviderProfile = struct {
     id: i64 = 0,
     name: []const u8,
@@ -166,6 +183,9 @@ pub const ProviderProfile = struct {
     size: i64 = 0,
     digest: []const u8 = "",
     modified_at: []const u8 = "",
+    provider_type: []const u8 = "ollama",
+    base_url: []const u8 = "",
+    api_key: []const u8 = "",
     created_at_ms: i64 = 0,
 };
 

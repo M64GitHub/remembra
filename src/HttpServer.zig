@@ -12,6 +12,7 @@ const EventKind = MemoryStore.EventKind;
 const ConfigIdentity = @import("ConfigIdentity.zig");
 const IdleThinker = @import("IdleThinker.zig").IdleThinker;
 const ProviderOllama = @import("ProviderOllama.zig");
+const ProviderOpenRouter = @import("ProviderOpenRouter.zig");
 
 const PORT: u16 = 8080;
 const READ_BUFFER_SIZE: usize = 16384;
@@ -202,6 +203,10 @@ fn handleRequest(
         startsWith(target, "/api/ollama/models"))
     {
         try handleGetOllamaModels(allocator, request);
+    } else if (method == .GET and
+        startsWith(target, "/api/openrouter/models"))
+    {
+        try handleGetOpenRouterModels(allocator, app, request);
     } else if (method == .GET and
         std.mem.eql(u8, target, "/api/profiles/personas"))
     {
@@ -2449,16 +2454,22 @@ fn handlePostProvider(
         allocator.free(input.model);
         allocator.free(input.digest);
         allocator.free(input.modified_at);
+        allocator.free(input.provider_type);
+        allocator.free(input.base_url);
+        allocator.free(input.api_key);
     }
 
-    const id = app.store.createProviderProfile(
-        input.name,
-        input.ollama_url,
-        input.model,
-        input.size,
-        input.digest,
-        input.modified_at,
-    ) catch {
+    const id = app.store.createProviderProfile(.{
+        .name = input.name,
+        .ollama_url = input.ollama_url,
+        .model = input.model,
+        .size = input.size,
+        .digest = input.digest,
+        .modified_at = input.modified_at,
+        .provider_type = input.provider_type,
+        .base_url = input.base_url,
+        .api_key = input.api_key,
+    }) catch {
         try respondError(request, .internal_server_error, "Failed to create");
         return;
     };
@@ -2535,17 +2546,35 @@ fn handleUpdateProvider(
         allocator.free(input.model);
         allocator.free(input.digest);
         allocator.free(input.modified_at);
+        allocator.free(input.provider_type);
+        allocator.free(input.base_url);
+        allocator.free(input.api_key);
     }
 
-    app.store.updateProviderProfile(
-        input.id,
-        input.name,
-        input.ollama_url,
-        input.model,
-        input.size,
-        input.digest,
-        input.modified_at,
-    ) catch {
+    var effective_key: []const u8 = input.api_key;
+    var existing_profile: ?Types.ProviderProfile = null;
+    defer if (existing_profile) |ep|
+        MemoryStore.freeProviderProfile(allocator, ep);
+
+    if (input.api_key.len == 0) {
+        existing_profile = app.store.getProviderProfile(
+            allocator,
+            input.id,
+        ) catch null;
+        if (existing_profile) |ep| effective_key = ep.api_key;
+    }
+
+    app.store.updateProviderProfile(input.id, .{
+        .name = input.name,
+        .ollama_url = input.ollama_url,
+        .model = input.model,
+        .size = input.size,
+        .digest = input.digest,
+        .modified_at = input.modified_at,
+        .provider_type = input.provider_type,
+        .base_url = input.base_url,
+        .api_key = effective_key,
+    }) catch {
         try respondError(request, .internal_server_error, "Update failed");
         return;
     };
@@ -2588,6 +2617,88 @@ fn handleGetOllamaModels(
     defer allocator.free(json);
 
     try respondJson(request, json);
+}
+
+fn handleGetOpenRouterModels(
+    allocator: std.mem.Allocator,
+    app: *App,
+    request: *std.http.Server.Request,
+) !void {
+    const target = request.head.target;
+
+    var profile_id: ?i64 = null;
+    if (std.mem.indexOf(u8, target, "?")) |q_idx| {
+        const query = target[q_idx + 1 ..];
+        if (parseQueryStr(query, "profile_id")) |pid| {
+            profile_id = std.fmt.parseInt(i64, pid, 10) catch null;
+        }
+    }
+
+    const id = profile_id orelse {
+        try respondError(
+            request,
+            .bad_request,
+            "Missing profile_id",
+        );
+        return;
+    };
+
+    const profile = (try app.store.getProviderProfile(
+        allocator,
+        id,
+    )) orelse {
+        try respondError(request, .not_found, "No such profile");
+        return;
+    };
+    defer MemoryStore.freeProviderProfile(allocator, profile);
+
+    const base_url = if (profile.base_url.len > 0)
+        profile.base_url
+    else
+        "https://openrouter.ai/api/v1";
+
+    const models = ProviderOpenRouter.discoverModels(
+        allocator,
+        base_url,
+        profile.api_key,
+    ) catch {
+        try respondJson(request, "{\"models\":[]}");
+        return;
+    };
+    defer ProviderOpenRouter.freeOpenRouterModels(allocator, models);
+
+    const json = try buildOpenRouterModelsJson(allocator, models);
+    defer allocator.free(json);
+
+    try respondJson(request, json);
+}
+
+fn buildOpenRouterModelsJson(
+    allocator: std.mem.Allocator,
+    models: []const ProviderOpenRouter.OpenRouterModel,
+) ![]u8 {
+    var out: std.ArrayList(u8) = .empty;
+    errdefer out.deinit(allocator);
+
+    try out.appendSlice(allocator, "{\"models\":[");
+
+    for (models, 0..) |m, i| {
+        if (i > 0) try out.append(allocator, ',');
+
+        const esc_id = try escapeJsonString(allocator, m.id);
+        defer allocator.free(esc_id);
+        const esc_name = try escapeJsonString(allocator, m.name);
+        defer allocator.free(esc_name);
+
+        try out.writer(allocator).print(
+            "{{\"id\":\"{s}\",\"name\":\"{s}\"," ++
+                "\"context_length\":{d}}}",
+            .{ esc_id, esc_name, m.context_length },
+        );
+    }
+
+    try out.appendSlice(allocator, "]}");
+    return out.toOwnedSlice(allocator);
 }
 
 fn urlDecode(allocator: std.mem.Allocator, input: []const u8) ![]u8 {
@@ -3181,7 +3292,20 @@ const ProviderInput = struct {
     size: i64,
     digest: []u8,
     modified_at: []u8,
+    provider_type: []u8,
+    base_url: []u8,
+    api_key: []u8,
 };
+
+fn getJsonStringOr(
+    obj: std.json.ObjectMap,
+    key: []const u8,
+    fallback: []const u8,
+) []const u8 {
+    const v = obj.get(key) orelse return fallback;
+    if (v != .string) return fallback;
+    return v.string;
+}
 
 fn parseProviderInput(
     allocator: std.mem.Allocator,
@@ -3199,12 +3323,25 @@ fn parseProviderInput(
     const root = parsed.value.object;
 
     const name_v = root.get("name") orelse return error.MissingName;
-    const url_v = root.get("ollama_url") orelse return error.MissingUrl;
-    const model_v = root.get("model") orelse return error.MissingModel;
-
     if (name_v != .string) return error.InvalidName;
-    if (url_v != .string) return error.InvalidUrl;
+    const model_v =
+        root.get("model") orelse return error.MissingModel;
     if (model_v != .string) return error.InvalidModel;
+
+    const ptype = getJsonStringOr(root, "provider_type", "ollama");
+    const ollama_url_raw = getJsonStringOr(root, "ollama_url", "");
+    const base_url_raw = getJsonStringOr(root, "base_url", "");
+    const ollama_url = if (ollama_url_raw.len > 0)
+        ollama_url_raw
+    else
+        base_url_raw;
+    const base_url = if (base_url_raw.len > 0)
+        base_url_raw
+    else
+        ollama_url_raw;
+
+    if (ollama_url.len == 0 and base_url.len == 0)
+        return error.MissingUrl;
 
     const size_v = root.get("size");
     const size: i64 = if (size_v != null and size_v.? == .integer)
@@ -3212,25 +3349,25 @@ fn parseProviderInput(
     else
         0;
 
-    const digest_v = root.get("digest");
-    const digest = if (digest_v != null and digest_v.? == .string)
-        digest_v.?.string
-    else
-        "";
-
-    const mod_v = root.get("modified_at");
-    const modified_at = if (mod_v != null and mod_v.? == .string)
-        mod_v.?.string
-    else
-        "";
-
     return .{
         .name = try allocator.dupe(u8, name_v.string),
-        .ollama_url = try allocator.dupe(u8, url_v.string),
+        .ollama_url = try allocator.dupe(u8, ollama_url),
         .model = try allocator.dupe(u8, model_v.string),
         .size = size,
-        .digest = try allocator.dupe(u8, digest),
-        .modified_at = try allocator.dupe(u8, modified_at),
+        .digest = try allocator.dupe(
+            u8,
+            getJsonStringOr(root, "digest", ""),
+        ),
+        .modified_at = try allocator.dupe(
+            u8,
+            getJsonStringOr(root, "modified_at", ""),
+        ),
+        .provider_type = try allocator.dupe(u8, ptype),
+        .base_url = try allocator.dupe(u8, base_url),
+        .api_key = try allocator.dupe(
+            u8,
+            getJsonStringOr(root, "api_key", ""),
+        ),
     };
 }
 
@@ -3242,6 +3379,9 @@ const ProviderUpdateInput = struct {
     size: i64,
     digest: []u8,
     modified_at: []u8,
+    provider_type: []u8,
+    base_url: []u8,
+    api_key: []u8,
 };
 
 fn parseProviderUpdateInput(
@@ -3263,12 +3403,25 @@ fn parseProviderUpdateInput(
     if (id_v != .integer) return error.InvalidId;
 
     const name_v = root.get("name") orelse return error.MissingName;
-    const url_v = root.get("ollama_url") orelse return error.MissingUrl;
-    const model_v = root.get("model") orelse return error.MissingModel;
-
     if (name_v != .string) return error.InvalidName;
-    if (url_v != .string) return error.InvalidUrl;
+    const model_v =
+        root.get("model") orelse return error.MissingModel;
     if (model_v != .string) return error.InvalidModel;
+
+    const ptype = getJsonStringOr(root, "provider_type", "ollama");
+    const ollama_url_raw = getJsonStringOr(root, "ollama_url", "");
+    const base_url_raw = getJsonStringOr(root, "base_url", "");
+    const ollama_url = if (ollama_url_raw.len > 0)
+        ollama_url_raw
+    else
+        base_url_raw;
+    const base_url = if (base_url_raw.len > 0)
+        base_url_raw
+    else
+        ollama_url_raw;
+
+    if (ollama_url.len == 0 and base_url.len == 0)
+        return error.MissingUrl;
 
     const size_v = root.get("size");
     const size: i64 = if (size_v != null and size_v.? == .integer)
@@ -3276,26 +3429,26 @@ fn parseProviderUpdateInput(
     else
         0;
 
-    const digest_v = root.get("digest");
-    const digest = if (digest_v != null and digest_v.? == .string)
-        digest_v.?.string
-    else
-        "";
-
-    const mod_v = root.get("modified_at");
-    const modified_at = if (mod_v != null and mod_v.? == .string)
-        mod_v.?.string
-    else
-        "";
-
     return .{
         .id = id_v.integer,
         .name = try allocator.dupe(u8, name_v.string),
-        .ollama_url = try allocator.dupe(u8, url_v.string),
+        .ollama_url = try allocator.dupe(u8, ollama_url),
         .model = try allocator.dupe(u8, model_v.string),
         .size = size,
-        .digest = try allocator.dupe(u8, digest),
-        .modified_at = try allocator.dupe(u8, modified_at),
+        .digest = try allocator.dupe(
+            u8,
+            getJsonStringOr(root, "digest", ""),
+        ),
+        .modified_at = try allocator.dupe(
+            u8,
+            getJsonStringOr(root, "modified_at", ""),
+        ),
+        .provider_type = try allocator.dupe(u8, ptype),
+        .base_url = try allocator.dupe(u8, base_url),
+        .api_key = try allocator.dupe(
+            u8,
+            getJsonStringOr(root, "api_key", ""),
+        ),
     };
 }
 
@@ -3481,17 +3634,24 @@ fn buildProvidersJson(
         if (i > 0) try out.append(allocator, ',');
 
         try out.writer(allocator).print(
-            "{{\"id\":{d},\"name\":\"{s}\",\"ollama_url\":\"{s}\"," ++
+            "{{\"id\":{d},\"name\":\"{s}\"," ++
+                "\"provider_type\":\"{s}\"," ++
+                "\"ollama_url\":\"{s}\",\"base_url\":\"{s}\"," ++
                 "\"model\":\"{s}\",\"size\":{d},\"digest\":\"{s}\"," ++
-                "\"modified_at\":\"{s}\",\"created_at_ms\":{d}}}",
+                "\"modified_at\":\"{s}\"," ++
+                "\"has_api_key\":{s}," ++
+                "\"created_at_ms\":{d}}}",
             .{
                 p.id,
                 p.name,
+                p.provider_type,
                 p.ollama_url,
+                p.base_url,
                 p.model,
                 p.size,
                 p.digest,
                 p.modified_at,
+                if (p.api_key.len > 0) "true" else "false",
                 p.created_at_ms,
             },
         );

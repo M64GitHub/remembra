@@ -5,6 +5,9 @@ const version = @import("version.zig");
 const Cli = @import("Cli.zig").Cli;
 const MemoryStoreSqlite = @import("MemoryStoreSqlite.zig").MemoryStoreSqlite;
 const ProviderOllama = @import("ProviderOllama.zig").ProviderOllama;
+const ProviderOpenRouter =
+    @import("ProviderOpenRouter.zig").ProviderOpenRouter;
+const Provider = @import("Provider.zig").Provider;
 const EventServer = @import("EventServer.zig").EventServer;
 const EventSystem = @import("EventSystem.zig").EventSystem;
 const Commands = @import("Commands.zig");
@@ -28,7 +31,7 @@ pub const LastContext = struct {
 pub const App = struct {
     cli: *Cli,
     store: MemoryStoreSqlite,
-    provider: ProviderOllama,
+    provider: Provider,
     event_server: *EventServer,
     events: EventSystem,
     conn: ConfigConn,
@@ -68,11 +71,13 @@ pub const App = struct {
 
         cli.msg(.inf, "Starting up ...", .{});
 
-        var provider = try ProviderOllama.init(
-            allocator,
-            conn.ollama_url,
-            conn.ollama_model,
-        );
+        var provider: Provider = .{
+            .ollama = try ProviderOllama.init(
+                allocator,
+                conn.ollama_url,
+                conn.ollama_model,
+            ),
+        };
         errdefer provider.deinit(allocator);
 
         var store = try MemoryStoreSqlite.init(conn.database_path);
@@ -137,21 +142,41 @@ pub const App = struct {
         const MemStore = @import("MemoryStoreSqlite.zig");
         const id = self.store.getActiveProviderId() orelse return;
 
-        const profile = try self.store.getProviderProfile(allocator, id) orelse
+        const profile =
+            try self.store.getProviderProfile(allocator, id) orelse
             return;
         defer MemStore.freeProviderProfile(allocator, profile);
 
+        const url_for_ollama = if (profile.base_url.len > 0)
+            profile.base_url
+        else
+            profile.ollama_url;
+
+        const ptype = Types.ProviderType.fromStr(profile.provider_type);
+
         self.provider.deinit(allocator);
-        self.provider = try ProviderOllama.init(
-            allocator,
-            profile.ollama_url,
-            profile.model,
-        );
+        self.provider = switch (ptype) {
+            .openrouter => .{
+                .openrouter = try ProviderOpenRouter.init(
+                    allocator,
+                    profile.base_url,
+                    profile.model,
+                    profile.api_key,
+                ),
+            },
+            .ollama => .{
+                .ollama = try ProviderOllama.init(
+                    allocator,
+                    url_for_ollama,
+                    profile.model,
+                ),
+            },
+        };
 
         self.cli.msg(
             .inf,
-            "Provider reloaded: {s} ({s})",
-            .{ profile.name, profile.model },
+            "Provider reloaded: {s} [{s}] ({s})",
+            .{ profile.name, profile.provider_type, profile.model },
         );
     }
 
@@ -327,7 +352,11 @@ pub const App = struct {
 
     fn printBanner(self: *App) void {
         self.cli.msg(.hil, "{s} {s}", .{ self.ident.name, version.version });
-        self.cli.msg(.inf, "Ollama provider ({s}).", .{self.conn.ollama_model});
+        self.cli.msg(
+            .inf,
+            "Provider: {s} ({s}).",
+            .{ self.provider.typeTag(), self.conn.ollama_model },
+        );
         self.cli.msg(.inf, "Type /help for commands.", .{});
     }
 };

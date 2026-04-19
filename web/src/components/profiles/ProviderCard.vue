@@ -1,5 +1,5 @@
 <script setup>
-import { ref } from 'vue'
+import { ref, computed } from 'vue'
 
 const props = defineProps({
   provider: {
@@ -18,6 +18,16 @@ const props = defineProps({
 
 const emit = defineEmits(['activate', 'delete', 'edit'])
 const showDetails = ref(false)
+
+const providerType = computed(
+  () => props.provider.provider_type || 'ollama'
+)
+const isOpenRouter = computed(() => providerType.value === 'openrouter')
+const displayUrl = computed(
+  () => props.provider.base_url ||
+        props.provider.ollama_url ||
+        '-'
+)
 
 function handleDelete() {
   if (confirm(`Delete provider "${props.provider.name}"?`)) {
@@ -53,6 +63,10 @@ function truncateDigest(digest) {
   <div class="provider-card" :class="{ active: isActive }">
     <div class="card-header">
       <span class="provider-name">{{ provider.name }}</span>
+      <span
+        class="type-badge"
+        :class="`type-${providerType}`"
+      >{{ providerType }}</span>
       <span class="active-badge" v-if="isActive">active</span>
       <button
         v-if="canDelete"
@@ -67,15 +81,24 @@ function truncateDigest(digest) {
     <div class="card-details">
       <div class="detail-row">
         <span class="detail-label">URL</span>
-        <span class="detail-value">{{ provider.ollama_url }}</span>
+        <span class="detail-value">{{ displayUrl }}</span>
       </div>
       <div class="detail-row">
         <span class="detail-label">Model</span>
-        <span class="detail-value">{{ provider.model }}</span>
+        <span class="detail-value">
+          {{ provider.model || '(unset)' }}
+        </span>
+      </div>
+      <div class="detail-row" v-if="isOpenRouter">
+        <span class="detail-label">Key</span>
+        <span class="detail-value">
+          {{ provider.has_api_key ? 'stored' : 'missing' }}
+        </span>
       </div>
     </div>
 
     <button
+      v-if="!isOpenRouter"
       class="details-toggle"
       @click="showDetails = !showDetails"
     >
@@ -83,7 +106,7 @@ function truncateDigest(digest) {
       <span class="toggle-icon">{{ showDetails ? '\u25B2' : '\u25BC' }}</span>
     </button>
 
-    <div class="extended-details" v-if="showDetails">
+    <div class="extended-details" v-if="showDetails && !isOpenRouter">
       <div class="detail-row">
         <span class="detail-label">Size</span>
         <span class="detail-value">{{ formatSize(provider.size) }}</span>
@@ -159,6 +182,25 @@ function truncateDigest(digest) {
   font-size: 9px;
   font-weight: 600;
   text-transform: uppercase;
+}
+
+.type-badge {
+  padding: 1px 6px;
+  border-radius: 3px;
+  font-size: 9px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+}
+
+.type-ollama {
+  background: var(--bg-tertiary);
+  color: var(--text-dim);
+}
+
+.type-openrouter {
+  background: var(--accent-primary);
+  color: white;
 }
 
 .delete-btn {
